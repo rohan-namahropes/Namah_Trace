@@ -14,23 +14,11 @@ Install or create these accounts before starting:
 - A Supabase account and project: https://supabase.com/
 - A Vercel account connected to GitHub: https://vercel.com/
 
-You will also need access to the administrator email address:
+An administrator can create or invite users in Supabase Authentication. Users sign in with their own Supabase Auth credentials.
 
-`rohan.namahropes@gmail.com`
+## 2. Configure Supabase Authentication
 
-The application has no public signup page. The administrator account must be created manually in Supabase Authentication.
-
-## 2. Understand the two local modes
-
-Namah Trace can start in either of these modes:
-
-### Demo mode
-
-If `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are missing, the app uses seeded sample batches and accepts the demo login form. This mode is intended for reviewing the interface and developing the UI. It is not a production data store.
-
-### Supabase mode
-
-If both environment variables are present, the app uses Supabase authentication and loads batch data from Supabase. Use this mode when testing the real deployment.
+Namah Trace requires both environment variables and uses Supabase Authentication as the only identity provider. The login screen also supports account creation with a name, email, and password. The name is stored as `user.user_metadata.full_name`.
 
 Environment variables beginning with `VITE_` are exposed to the browser. The anon key is designed for browser use when Row Level Security is enabled. Never put a Supabase service-role key in `.env.local`, GitHub, or Vercel browser environment variables.
 
@@ -84,18 +72,18 @@ The project contains the complete first migration at [supabase/schema.sql](supab
 
 The SQL file also enables Row Level Security and creates authenticated-user policies. Do not disable RLS to make a query work. Fix the policy or query instead.
 
-## 6. Create the administrator account
+## 6. Create an administrator account
 
 1. In Supabase, open **Authentication** → **Users**.
 2. Select **Add user** or **Create user**.
-3. Enter `rohan.namahropes@gmail.com`.
+3. Enter the administrator's email address.
 4. Set a temporary strong password.
 5. Choose whether to require email confirmation according to the Namah Ropes access policy.
 6. Create the user.
 7. Share the temporary password through a private channel.
 8. Change or rotate the password after the first sign-in if required by your internal policy.
 
-There is intentionally no signup, password reset, or user-management screen in this MVP.
+Users may also register from the login screen when email confirmation settings allow it.
 
 ## 7. Configure local environment variables
 
@@ -161,7 +149,7 @@ npm run dev -- --port 5174
 
 ## 9. Project structure
 
-- [src/main.jsx](src/main.jsx): login, dashboard, batch page, pipeline, stage record UI, seeded demo data, and report generation.
+- [src/main.jsx](src/main.jsx): Supabase login/signup/session handling, dashboard, batch page, pipeline, stage record UI, seeded development data, and report generation.
 - [src/style.css](src/style.css): typography, colors, layout, responsive behavior, tables, pipeline, modals, and login screen.
 - [src/lib/supabase.js](src/lib/supabase.js): Supabase client creation and environment-variable detection.
 - [src/lib/api.js](src/lib/api.js): Supabase queries and Storage upload helper functions.
@@ -195,7 +183,7 @@ set is_active = false
 where name = 'Packaging';
 ```
 
-The demo fallback is the `defaultStages` array near the top of [src/main.jsx](src/main.jsx). Keep it aligned with the database when developing without Supabase.
+The local `defaultStages` and `seedBatches` values provide initial UI data until the authenticated batch query returns. They are not an authentication fallback.
 
 ## 11. Change stage fields
 

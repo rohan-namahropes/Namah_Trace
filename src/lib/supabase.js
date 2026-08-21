@@ -4,6 +4,5 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
-export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : { auth: { signInWithPassword: async () => ({ data: { session: null }, error: null }) } }
+if (!isSupabaseConfigured) throw new Error('Supabase environment variables are required.')
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
