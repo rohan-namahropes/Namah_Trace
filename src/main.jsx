@@ -144,3 +144,9 @@ function StageDetail({ stage, batch, onClose, onSave }) { const [status, setStat
 function downloadReport(batch) { const rows = batch.stages.map((stage) => `<tr><td>${stage.name}</td><td>${stage.status}</td><td>${stage.performedBy || '—'}</td><td>${stage.completedAt ? formatDate(stage.completedAt) : '—'}</td><td>${(stage.measurements || []).map((measurement) => `${measurement.key}: ${measurement.value}`).join('<br>') || '—'}</td><td>${stage.notes || '—'}</td></tr>`).join(''); const html = `<html><head><title>Namah Trace · ${batch.id}</title><style>body{font:14px Arial;color:#202824;padding:40px}h1{font:700 30px Georgia}p{color:#68736e}table{border-collapse:collapse;width:100%;margin-top:28px}th,td{border:1px solid #d9dedb;padding:10px;text-align:left;vertical-align:top}th{background:#eef2ef;font-size:11px;text-transform:uppercase;letter-spacing:1px}</style></head><body><p>NAMAH ROPES / NAMAH TRACE</p><h1>Batch report: ${batch.id}</h1><p>${batch.notes || ''}</p><p>Created ${formatDate(batch.created)} · Status ${batch.status} · Progress ${getProgress(batch)}%</p><table><thead><tr><th>Stage</th><th>Status</th><th>Person</th><th>Date</th><th>Measurements</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>window.print()</script></body></html>`; const report = window.open('', '_blank'); report.document.write(html); report.document.close() }
 
 export default App
+
+createRoot(document.getElementById('app')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
