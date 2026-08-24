@@ -28,8 +28,8 @@ import {
   X,
 } from "lucide-react";
 import "./style.css";
-import { supabase, isSupabaseConfigured } from "./lib/supabase";
-import { listBatches, uploadEvidence } from "./lib/api";
+import { supabase } from "./lib/supabase";
+import { createBatch, listBatches, saveStageRecord } from "./lib/api";
 
 const defaultStages = [
   {
@@ -135,21 +135,65 @@ const formatTime = (date) =>
   }).format(new Date(date));
 const getProgress = (batch) =>
   Math.round(
-    (batch.stages.filter((stage) => stage.status === "Completed").length /
-      batch.stages.length) *
+    (batch.stages.length
+      ? batch.stages.filter((stage) => stage.status === "Completed").length /
+        batch.stages.length
+      : 0) *
       100,
   );
+
+const mapBatch = (batch) => {
+  const stages = (batch.batch_stages || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.workflow_stages?.position || 0) -
+        (b.workflow_stages?.position || 0),
+    )
+    .map((stage) => ({
+      id: stage.id,
+      workflowStageId: stage.workflow_stages?.id || stage.stage_id,
+      name: stage.workflow_stages?.name || "Unnamed stage",
+      short: stage.workflow_stages?.name || "Stage",
+      color: "#85a98a",
+      status: stage.status,
+      performedBy: stage.performed_by || "",
+      startedAt: stage.started_at,
+      completedAt: stage.completed_at,
+      notes: stage.notes || "",
+      measurements: (stage.stage_measurements || []).map((measurement) => ({
+        id: measurement.id,
+        key: measurement.field_name,
+        value: measurement.field_value,
+      })),
+      evidence: stage.evidence || [],
+    }));
+  const currentStageIndex = stages.findIndex(
+    (stage) => stage.status !== "Completed",
+  );
+  return {
+    id: batch.id,
+    notes: batch.notes || "",
+    created: batch.created_at,
+    status: batch.status,
+    currentStage: currentStageIndex === -1 ? stages.length : currentStageIndex + 1,
+    stages,
+  };
+};
 
 function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [batches, setBatches] = useState(seedBatches);
+  const [batches, setBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [selectedStageId, setSelectedStageId] = useState(null);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [batchError, setBatchError] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [stageError, setStageError] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -171,42 +215,17 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
-    listBatches().then(({ data }) => {
-      if (!data) return;
-      setBatches(
-        data.map((batch) => ({
-          id: batch.id,
-          notes: batch.notes || "",
-          created: batch.created_at,
-          status: batch.status,
-          currentStage: (batch.batch_stages || []).filter(
-            (stage) => stage.status === "Completed",
-          ).length,
-          stages: (batch.batch_stages || [])
-            .sort(
-              (a, b) =>
-                (a.workflow_stages?.position || 0) -
-                (b.workflow_stages?.position || 0),
-            )
-            .map((stage) => ({
-              id: stage.workflow_stages?.id || stage.stage_id,
-              name: stage.workflow_stages?.name || "Unnamed stage",
-              short: stage.workflow_stages?.name || "Stage",
-              color: "#85a98a",
-              status: stage.status,
-              performedBy: stage.performed_by || "",
-              startedAt: stage.started_at,
-              completedAt: stage.completed_at,
-              notes: stage.notes || "",
-              measurements: (stage.stage_measurements || []).map(
-                (measurement) => ({
-                  key: measurement.field_name,
-                  value: measurement.field_value,
-                }),
-              ),
-            })),
-        })),
-      );
+    listBatches().then(({ data, error }) => {
+      if (error) {
+        setBatchError(error.message);
+        setBatches([]);
+        return;
+      }
+      setBatchError("");
+      setBatches(data.map(mapBatch));
+    }).catch((error) => {
+      setBatchError(error.message);
+      setBatches([]);
     });
   }, [session]);
 
@@ -240,42 +259,42 @@ function App() {
     (stage) => stage.id === selectedStageId,
   );
 
-  const addBatch = (batch) => {
-    setBatches((current) => [batch, ...current]);
-    setShowCreate(false);
-    setSelectedBatchId(batch.id);
+  const addBatch = async (batch) => {
+    setCreateError("");
+    try {
+      const { data, error } = await createBatch(batch, session.user.id);
+      if (error || !data) {
+        setCreateError(error?.message || "Supabase did not return the created batch.");
+        return false;
+      }
+      const persistedBatch = mapBatch(data);
+      setBatches((current) => [persistedBatch, ...current]);
+      setShowCreate(false);
+      setSelectedBatchId(persistedBatch.id);
+      return true;
+    } catch (error) {
+      setCreateError(error.message);
+      return false;
+    }
   };
 
   const updateStage = async (stageId, updates) => {
-    if (isSupabaseConfigured && updates.evidenceFiles?.length) {
-      await Promise.all(
-        updates.evidenceFiles.map((file) =>
-          uploadEvidence(file, selectedBatch.id, stageId, session.user.id),
-        ),
-      );
+    setStageError("");
+    const { data, error } = await saveStageRecord(
+      selectedBatch.id,
+      stageId,
+      updates,
+      session.user.id,
+    );
+    if (error || !data) {
+      setStageError(error?.message || "Supabase did not return the saved stage.");
+      return false;
     }
     setBatches((current) =>
-      current.map((batch) =>
-        batch.id === selectedBatch.id
-          ? {
-              ...batch,
-              stages: batch.stages.map((stage) =>
-                stage.id === stageId ? { ...stage, ...updates } : stage,
-              ),
-              currentStage:
-                updates.status === "Completed"
-                  ? Math.max(
-                      batch.currentStage,
-                      batch.stages.findIndex((stage) => stage.id === stageId) +
-                        1,
-                    )
-                  : batch.currentStage,
-              status: updates.status === "On Hold" ? "On Hold" : batch.status,
-            }
-          : batch,
-      ),
+      current.map((batch) => (batch.id === data.id ? mapBatch(data) : batch)),
     );
     setSelectedStageId(null);
+    return true;
   };
 
   return (
@@ -321,6 +340,7 @@ function App() {
         ) : (
           <Dashboard
             batches={batches}
+            fetchError={batchError}
             displayName={displayName}
             search={search}
             setSearch={setSearch}
@@ -330,7 +350,11 @@ function App() {
         )}
       </main>
       {showCreate && (
-        <CreateBatch onClose={() => setShowCreate(false)} onCreate={addBatch} />
+        <CreateBatch
+          onClose={() => setShowCreate(false)}
+          onCreate={addBatch}
+          error={createError}
+        />
       )}
       {selectedStage && (
         <StageDetail
@@ -339,6 +363,7 @@ function App() {
           displayName={displayName}
           onClose={() => setSelectedStageId(null)}
           onSave={updateStage}
+          error={stageError}
         />
       )}
     </div>
@@ -541,6 +566,7 @@ function Sidebar({
 function Dashboard({
   batches,
   displayName,
+  fetchError,
   search,
   setSearch,
   onCreate,
@@ -593,6 +619,7 @@ function Dashboard({
           icon={<Clock3 size={19} />}
         />
       </div>
+      {fetchError && <p className="form-error">Unable to load batches: {fetchError}</p>}
       <div className="section-heading">
         <div>
           <h2>All batches</h2>
@@ -837,13 +864,15 @@ function BatchView({ batch, displayName, onBack, onStageClick, onDownload }) {
   );
 }
 
-function CreateBatch({ onClose, onCreate }) {
+function CreateBatch({ onClose, onCreate, error }) {
   const [id, setId] = useState("");
   const [notes, setNotes] = useState("");
-  const submit = (event) => {
+  const [busy, setBusy] = useState(false);
+  const submit = async (event) => {
     event.preventDefault();
+    setBusy(true);
     const created = new Date().toISOString();
-    onCreate({
+    await onCreate({
       id: id.trim(),
       notes,
       created,
@@ -855,6 +884,7 @@ function CreateBatch({ onClose, onCreate }) {
         measurements: [],
       })),
     });
+    setBusy(false);
   };
   return (
     <div className="modal-backdrop">
@@ -902,11 +932,12 @@ function CreateBatch({ onClose, onCreate }) {
             <input type="file" />
           </div>
         </label>
+        {error && <p className="form-error">Unable to create batch: {error}</p>}
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary-button">
+          <button className="primary-button" disabled={busy}>
             Create batch <ArrowUpRight size={16} />
           </button>
         </div>
@@ -915,7 +946,7 @@ function CreateBatch({ onClose, onCreate }) {
   );
 }
 
-function StageDetail({ stage, batch, displayName, onClose, onSave }) {
+function StageDetail({ stage, batch, displayName, onClose, onSave, error }) {
   const [status, setStatus] = useState(stage.status);
   const [person, setPerson] = useState(stage.performedBy || displayName);
   const [notes, setNotes] = useState(stage.notes || "");
@@ -1055,6 +1086,17 @@ function StageDetail({ stage, batch, displayName, onClose, onSave }) {
             />
           </div>
         </label>
+        {stage.evidence?.length > 0 && (
+          <div className="measurement-list">
+            {stage.evidence.map((item) => (
+              <div className="measurement-row" key={item.id}>
+                <span>{item.file_name}</span>
+                <b>{formatDate(item.created_at)}</b>
+              </div>
+            ))}
+          </div>
+        )}
+        {error && <p className="form-error">Unable to save stage: {error}</p>}
         <div className="modal-actions">
           <button className="secondary-button" onClick={onClose}>
             Cancel
