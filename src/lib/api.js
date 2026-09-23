@@ -1,18 +1,46 @@
 import { supabase } from './supabase'
 
 export async function listBatches() {
-  return supabase
+  const batches = await supabase
     .from('batches')
-    .select('*, batch_stages(*, workflow_stages(*), stage_measurements(*), evidence(*))')
+    .select('*, batch_stages(*, workflow_stages(*), stage_measurements(*), evidence(*)), batch_history(*)')
     .order('created_at', { ascending: false })
+  if (batches.error) return batches
+  return attachProfiles(batches.data)
 }
 
 export async function getBatch(batchId) {
-  return supabase
+  const batch = await supabase
     .from('batches')
-    .select('*, batch_stages(*, workflow_stages(*), stage_measurements(*), evidence(*))')
+    .select('*, batch_stages(*, workflow_stages(*), stage_measurements(*), evidence(*)), batch_history(*)')
     .eq('id', batchId)
     .single()
+  if (batch.error) return batch
+  return attachProfiles([batch.data]).then(({ data, error }) => ({
+    data: data?.[0] || null,
+    error,
+  }))
+}
+
+async function attachProfiles(batches) {
+  const profiles = await supabase.from('profiles').select('id, display_name')
+  if (profiles.error) return profiles
+  const names = new Map((profiles.data || []).map((profile) => [profile.id, profile.display_name]))
+  return {
+    data: batches.map((batch) => ({
+      ...batch,
+      creator_name: names.get(batch.created_by) || null,
+      batch_history: (batch.batch_history || []).map((event) => ({
+        ...event,
+        actor_name: names.get(event.performed_by) || null,
+      })),
+      batch_stages: (batch.batch_stages || []).map((stage) => ({
+        ...stage,
+        performer_name: names.get(stage.performed_by) || null,
+      })),
+    })),
+    error: null,
+  }
 }
 
 export async function createBatch(batch, userId) {
@@ -117,5 +145,15 @@ export async function saveStageRecord(batchId, stageId, updates, userId) {
       : 'In Progress'
   const batch = await updateBatchStatus(batchId, status)
   if (batch.error) return batch
+
+  const history = await supabase.from('batch_history').insert({
+    batch_id: batchId,
+    batch_stage_id: stageId,
+    action: updates.status === 'Completed' ? 'Stage completed' : 'Stage updated',
+    status: updates.status,
+    notes: updates.notes,
+    performed_by: userId,
+  })
+  if (history.error) return history
   return getBatch(batchId)
 }

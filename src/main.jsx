@@ -4,24 +4,19 @@ import {
   ArrowLeft,
   ArrowUpRight,
   BarChart3,
-  Bell,
-  BookOpen,
   Check,
   ChevronDown,
   CircleHelp,
   Clock3,
   Download,
   FileText,
-  Filter,
   FlaskConical,
   Layers3,
   LogOut,
   Menu,
-  MoreHorizontal,
   Paperclip,
   Plus,
   Search,
-  Settings2,
   ShieldCheck,
   Upload,
   UserRound,
@@ -157,7 +152,7 @@ const mapBatch = (batch) => {
       short: stage.workflow_stages?.name || "Stage",
       color: "#85a98a",
       status: stage.status,
-      performedBy: stage.performed_by || "",
+      performedBy: stage.performer_name || "",
       startedAt: stage.started_at,
       completedAt: stage.completed_at,
       notes: stage.notes || "",
@@ -171,11 +166,34 @@ const mapBatch = (batch) => {
   const currentStageIndex = stages.findIndex(
     (stage) => stage.status !== "Completed",
   );
+  const history = (batch.batch_history || []).length
+    ? batch.batch_history.map((event) => ({
+        id: event.id,
+        stage: stages.find((stage) => stage.id === event.batch_stage_id)?.name || "Batch",
+        action: event.action,
+        person: event.actor_name || "Unknown",
+        date: event.created_at,
+        status: event.status || "In Progress",
+        notes: event.notes || "",
+      }))
+    : stages
+        .filter((stage) => stage.status !== "Pending")
+        .map((stage) => ({
+          id: stage.id,
+          stage: stage.name,
+          action: stage.status === "Completed" ? "Stage completed" : "Stage started",
+          person: stage.performedBy || "Unknown",
+          date: stage.completedAt || stage.startedAt || batch.created_at,
+          status: stage.status,
+          notes: stage.notes,
+        }));
   return {
     id: batch.id,
     notes: batch.notes || "",
     created: batch.created_at,
     status: batch.status,
+    creatorName: batch.creator_name || "Unknown",
+    history,
     currentStage: currentStageIndex === -1 ? stages.length : currentStageIndex + 1,
     stages,
   };
@@ -244,10 +262,7 @@ function App() {
     );
 
   const user = session.user;
-  const displayName =
-    user.user_metadata?.full_name?.trim() ||
-    user.email?.split("@")[0] ||
-    "Account";
+  const displayName = user.user_metadata?.full_name?.trim() || "there";
   const initials = displayName
     .split(/\s+/)
     .map((part) => part[0])
@@ -323,16 +338,12 @@ function App() {
             <strong>{selectedBatch ? selectedBatch.id : "Overview"}</strong>
           </div>
           <div className="topbar-actions">
-            <button className="icon-button" aria-label="Notifications">
-              <Bell size={18} />
-            </button>
             <div className="avatar">{initials}</div>
           </div>
         </header>
         {selectedBatch ? (
           <BatchView
             batch={selectedBatch}
-            displayName={displayName}
             onBack={() => setSelectedBatchId(null)}
             onStageClick={setSelectedStageId}
             onDownload={() => downloadReport(selectedBatch)}
@@ -371,68 +382,31 @@ function App() {
 }
 
 function Login({ onLogin, error, setError }) {
-  const [mode, setMode] = useState("login");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [success, setSuccess] = useState("");
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     setError("");
-    setSuccess("");
-    const response =
-      mode === "login"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({
-            email,
-            password,
-            options: { data: { full_name: name } },
-          });
+    const response = await supabase.auth.signInWithPassword({ email, password });
     if (response.error) setError(response.error.message);
-    else if (mode === "signup" && !response.data.session)
-      setSuccess(
-        "Account created. Check your email to confirm your account, then sign in.",
-      );
     else if (response.data.session) onLogin(response.data.session);
     setBusy(false);
   };
   return (
     <div className="login-page">
       <div className="login-panel">
-        <div className="brand-mark large">N</div>
         <p className="eyebrow">NAMAH ROPES / OPERATIONS</p>
         <h1>
-          {mode === "login" ? (
-            <>
-              Welcome to
-              <br />
-              <em>Namah Trace.</em>
-            </>
-          ) : (
-            <>
-              Create your
-              <br />
-              <em>Namah Trace</em> account.
-            </>
-          )}
+          Welcome to
+          <br />
+          <em>Namah Trace.</em>
         </h1>
         <p className="login-copy">
           From yarn to rope. Every step accounted for.
         </p>
         <form onSubmit={submit} className="login-form">
-          {mode === "signup" && (
-            <label>
-              Name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                type="text"
-                required
-              />
-            </label>
-          )}
           <label>
             Email address
             <input
@@ -452,30 +426,11 @@ function Login({ onLogin, error, setError }) {
             />
           </label>
           {error && <p className="form-error">{error}</p>}
-          {success && <p className="form-success">{success}</p>}
           <button className="primary-button full" disabled={busy}>
-            {busy
-              ? mode === "login"
-                ? "Signing in..."
-                : "Creating account..."
-              : mode === "login"
-                ? "Sign in"
-                : "Create account"}{" "}
+            {busy ? "Signing in..." : "Sign in"}{" "}
             <ArrowUpRight size={17} />
           </button>
         </form>
-        <button
-          className="text-button"
-          onClick={() => {
-            setMode(mode === "login" ? "signup" : "login");
-            setError("");
-            setSuccess("");
-          }}
-        >
-          {mode === "login"
-            ? "Create an account"
-            : "Already have an account? Sign in"}
-        </button>
         <p className="login-foot">
           <ShieldCheck size={14} /> Internal workspace · Administrator access
           only
@@ -483,12 +438,7 @@ function Login({ onLogin, error, setError }) {
       </div>
       <div className="login-aside">
         <div className="rope-lines"></div>
-        <p>TRACE / 01</p>
-        <strong>
-          One identity.
-          <br />
-          Every process.
-        </strong>
+        <p>TRACE / v0.0.1</p>
       </div>
     </div>
   );
@@ -538,13 +488,6 @@ function Sidebar({
         >
           <Layers3 size={17} /> All batches <span className="nav-count">3</span>
         </button>
-        <button onClick={onClose}>
-          <BookOpen size={17} /> Documentation
-        </button>
-        <p className="nav-label second">Manage</p>
-        <button onClick={onClose}>
-          <Settings2 size={17} /> Settings
-        </button>
       </nav>
       <div className="side-bottom">
         <div className="profile">
@@ -553,7 +496,6 @@ function Sidebar({
             <strong>{displayName}</strong>
             <small>{user.email}</small>
           </div>
-          <MoreHorizontal size={17} />
         </div>
         <button className="logout-button" onClick={onLogout}>
           <LogOut size={16} /> Sign out
@@ -582,9 +524,7 @@ function Dashboard({
       <div className="page-heading">
         <div>
           <p className="eyebrow">WORKSPACE / OVERVIEW</p>
-          <h1>
-            Good morning, {displayName} <span>↗</span>
-          </h1>
+          <h1>Welcome{displayName !== "there" ? `, ${displayName}` : ""}</h1>
           <p className="subheading">
             Keep an eye on every batch moving through production.
           </p>
@@ -634,9 +574,6 @@ function Dashboard({
               placeholder="Search batches"
             />
           </div>
-          <button className="secondary-button icon-text">
-            <Filter size={16} /> Filter
-          </button>
         </div>
       </div>
       <div className="batch-table">
@@ -723,22 +660,9 @@ function Status({ status }) {
   );
 }
 
-function BatchView({ batch, displayName, onBack, onStageClick, onDownload }) {
+function BatchView({ batch, onBack, onStageClick, onDownload }) {
   const progress = getProgress(batch);
-  const history = batch.stages
-    .filter((stage) => stage.status !== "Pending")
-    .flatMap((stage) => [
-      {
-        stage: stage.name,
-        action:
-          stage.status === "Completed" ? "Stage completed" : "Stage started",
-        person: stage.performedBy || "Unassigned",
-        date: stage.completedAt || stage.startedAt || batch.created,
-        status: stage.status,
-        notes: stage.notes,
-      },
-    ])
-    .reverse();
+  const history = batch.history;
   return (
     <section className="page batch-page">
       <button className="back-link" onClick={onBack}>
@@ -750,7 +674,7 @@ function BatchView({ batch, displayName, onBack, onStageClick, onDownload }) {
           <h1>{batch.id}</h1>
           <p className="subheading">
             Created {formatDate(batch.created)} at {formatTime(batch.created)} ·
-            by {displayName}
+            by {batch.creatorName}
           </p>
         </div>
         <div className="batch-actions">
@@ -791,9 +715,6 @@ function BatchView({ batch, displayName, onBack, onStageClick, onDownload }) {
             <h2>Manufacturing pipeline</h2>
             <p>Click any stage to view or update its record.</p>
           </div>
-          <button className="icon-button" aria-label="Pipeline options">
-            <MoreHorizontal size={19} />
-          </button>
         </div>
         <div className="pipeline">
           {batch.stages.map((stage, index) => (
@@ -830,9 +751,6 @@ function BatchView({ batch, displayName, onBack, onStageClick, onDownload }) {
             <h2>Batch history</h2>
             <p>A complete record of actions taken on this batch.</p>
           </div>
-          <button className="secondary-button icon-text">
-            <Filter size={16} /> Filter history
-          </button>
         </div>
         <div className="timeline">
           {history.map((entry, index) => (
