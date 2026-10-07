@@ -38,7 +38,6 @@ export function EntityDetail({
   onDeleteTest,
   onUpdateStatus,
 }) {
-  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'genealogy', 'processes', 'qc', 'evidence', 'audit'
 
   if (!entity) return null
 
@@ -212,7 +211,6 @@ export function EntityDetail({
               {getTypeLabel()}
             </span>
 
-            {/* Quick Status Dropdown / Pill */}
             <div className="status-dropdown-wrap">
               <select
                 className={`status-select-control ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}
@@ -250,285 +248,240 @@ export function EntityDetail({
         </div>
       </div>
 
-      {/* Detail Section Tabs */}
-      <div className="detail-tabs-bar">
-        <button
-          className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}
-        >
-          <Info size={16} /> Overview & Genealogy
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'processes' ? 'active' : ''}`}
-          onClick={() => setActiveTab('processes')}
-        >
-          <Clock size={16} /> Processes ({entity.processes.length})
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'qc' ? 'active' : ''}`}
-          onClick={() => setActiveTab('qc')}
-        >
-          <FlaskConical size={16} /> Parameters & Tests ({entity.parameters.length + entity.tests.length})
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'evidence' ? 'active' : ''}`}
-          onClick={() => setActiveTab('evidence')}
-        >
-          <Paperclip size={16} /> Evidence ({entity.evidence.length})
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
-          onClick={() => setActiveTab('audit')}
-        >
-          <History size={16} /> Audit Trail ({entity.auditLogs.length})
-        </button>
-      </div>
+      {/* CONTINUOUS LIFECYCLE PAGE — all sections rendered inline */}
+      <div className="detail-lifecycle-page">
 
-      {/* TAB CONTENT 1: OVERVIEW & GENEALOGY */}
-      {activeTab === 'overview' && (
-        <div className="tab-pane-content">
-          <div className="detail-cards-grid">
-            {/* Basic Info Card */}
-            <div className="panel-card">
-              <div className="panel-head">
-                <div className="panel-title-wrap">
-                  <FileText size={17} className="panel-icon" />
-                  <h3>Basic Information</h3>
+        {/* SECTION 1: Basic Information */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <FileText size={16} className="section-icon" />
+              <h2>Basic Information</h2>
+            </div>
+            <button className="link-button" onClick={onOpenEditModal}><Edit2 size={13} /> Edit</button>
+          </div>
+          <div className="panel-card">
+            <div className="panel-body">
+              <div className="info-attribute-grid">
+                <div className="attr-item">
+                  <span className="attr-label">Batch Identifier</span>
+                  <strong className="attr-value mono">{entity.batch_id}</strong>
                 </div>
-                <button className="link-button" onClick={onOpenEditModal}>
-                  Edit
-                </button>
-              </div>
-
-              <div className="panel-body">
-                <div className="info-attribute-grid">
-                  <div className="attr-item">
-                    <span className="attr-label">Batch Identifier</span>
-                    <strong className="attr-value mono">{entity.batch_id}</strong>
-                  </div>
-                  <div className="attr-item">
-                    <span className="attr-label">Entity Classification</span>
-                    <span className="attr-value">{getTypeLabel()}</span>
-                  </div>
-                  {entity.supplier && (
-                    <div className="attr-item">
-                      <span className="attr-label">Raw Material Supplier</span>
-                      <strong className="attr-value">{entity.supplier}</strong>
-                    </div>
-                  )}
-                  {entity.treatment && (
-                    <div className="attr-item">
-                      <span className="attr-label">Treatment Specification</span>
-                      <strong className="attr-value">{entity.treatment}</strong>
-                    </div>
-                  )}
-                  <div className="attr-item">
-                    <span className="attr-label">Recorded Quantity</span>
-                    <span className="attr-value">
-                      {entity.quantity ? `${entity.quantity} ${entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}` : 'Unspecified portion'}
-                    </span>
-                  </div>
-                  <div className="attr-item">
-                    <span className="attr-label">Lifecycle Status</span>
-                    <span className={`status-pill ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <span className="status-dot"></span>
-                      {entity.status || 'Active'}
-                    </span>
-                  </div>
-                  <div className="attr-item">
-                    <span className="attr-label">Created By</span>
-                    <span className="attr-value">{entity.created_by_name || 'Production Operator'}</span>
-                  </div>
-                  <div className="attr-item">
-                    <span className="attr-label">Registered Timestamp</span>
-                    <span className="attr-value">{formatDateTime(entity.created_at)}</span>
-                  </div>
+                <div className="attr-item">
+                  <span className="attr-label">Entity Classification</span>
+                  <span className="attr-value">{getTypeLabel()}</span>
                 </div>
-
-                {entity.notes && (
-                  <div className="entity-notes-box">
-                    <span className="notes-box-title">Remarks & Observations</span>
-                    <p>{entity.notes}</p>
+                {entity.supplier && (
+                  <div className="attr-item">
+                    <span className="attr-label">Raw Material Supplier</span>
+                    <strong className="attr-value">{entity.supplier}</strong>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* VISUAL & INTERACTIVE GENEALOGY CARD */}
-            <div className="panel-card genealogy-panel">
-              <div className="panel-head">
-                <div className="panel-title-wrap">
-                  <GitBranch size={17} className="panel-icon text-navy" />
-                  <h3>Genealogy & Material Lineage</h3>
+                {entity.treatment && (
+                  <div className="attr-item">
+                    <span className="attr-label">Treatment Specification</span>
+                    <strong className="attr-value">{entity.treatment}</strong>
+                  </div>
+                )}
+                <div className="attr-item">
+                  <span className="attr-label">Recorded Quantity</span>
+                  <span className="attr-value">
+                    {entity.quantity ? `${entity.quantity} ${entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}` : 'Unspecified portion'}
+                  </span>
+                </div>
+                <div className="attr-item">
+                  <span className="attr-label">Lifecycle Status</span>
+                  <span className={`status-pill ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <span className="status-dot"></span>
+                    {entity.status || 'Active'}
+                  </span>
+                </div>
+                <div className="attr-item">
+                  <span className="attr-label">Created By</span>
+                  <span className="attr-value">{entity.created_by_name || 'Production Operator'}</span>
+                </div>
+                <div className="attr-item">
+                  <span className="attr-label">Registered Timestamp</span>
+                  <span className="attr-value">{formatDateTime(entity.created_at)}</span>
                 </div>
               </div>
 
-              <div className="panel-body">
-                {/* Visual Lineage Flow Box */}
-                <div className="genealogy-flow-container">
-                  {/* UPSTREAM PARENTS (WHERE DID THIS COME FROM?) */}
-                  <div className="genealogy-section">
-                    <div className="genealogy-section-title">
-                      <span>UPSTREAM PARENT ENTITIES</span>
-                      <small>Source materials used to produce this batch</small>
-                    </div>
+              {entity.notes && (
+                <div className="entity-notes-box">
+                  <span className="notes-box-title">Remarks & Observations</span>
+                  <p>{entity.notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-                    {genealogy.parents.length > 0 ? (
-                      <div className="genealogy-cards-row">
-                        {genealogy.parents.map((p) => (
-                          <div
-                            key={p.entityId}
-                            className="genealogy-node-card clickable"
-                            onClick={() => onNavigateEntity(p.entityId)}
-                          >
-                            <div className="node-card-top">
-                              <span className={`type-badge-pill ${p.type}`}>
-                                {getTypeIcon(p.type)}
-                                {p.type === 'flat_yarn' ? 'Flat Yarn' : 'Yarn Batch'}
-                              </span>
-                              <ExternalLink size={14} className="node-link-icon" />
-                            </div>
-                            <strong className="node-batch-id">{p.batchId}</strong>
-                            {p.supplier && <div className="node-meta">Supplier: {p.supplier}</div>}
-                            {p.treatment && <div className="node-meta">{p.treatment}</div>}
-                            {p.quantityUsed && (
-                              <div className="node-portion-tag">
-                                Portion: {p.quantityUsed} {p.unit || 'kg'}
-                              </div>
-                            )}
+        {/* SECTION 2: Genealogy & Material Lineage */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <GitBranch size={16} className="section-icon text-navy" />
+              <h2>Genealogy & Material Lineage</h2>
+            </div>
+          </div>
+          <div className="panel-card genealogy-panel">
+            <div className="panel-body">
+              <div className="genealogy-flow-container">
+                {/* UPSTREAM PARENTS */}
+                <div className="genealogy-section">
+                  <div className="genealogy-section-title">
+                    <span>UPSTREAM PARENT ENTITIES</span>
+                    <small>Source materials used to produce this batch</small>
+                  </div>
+
+                  {genealogy.parents.length > 0 ? (
+                    <div className="genealogy-cards-row">
+                      {genealogy.parents.map((p) => (
+                        <div
+                          key={p.entityId}
+                          className="genealogy-node-card clickable"
+                          onClick={() => onNavigateEntity(p.entityId)}
+                        >
+                          <div className="node-card-top">
+                            <span className={`type-badge-pill ${p.type}`}>
+                              {getTypeIcon(p.type)}
+                              {p.type === 'flat_yarn' ? 'Flat Yarn' : 'Yarn Batch'}
+                            </span>
+                            <ExternalLink size={14} className="node-link-icon" />
                           </div>
+                          <strong className="node-batch-id">{p.batchId}</strong>
+                          {p.supplier && <div className="node-meta">Supplier: {p.supplier}</div>}
+                          {p.treatment && <div className="node-meta">{p.treatment}</div>}
+                          {p.quantityUsed && (
+                            <div className="node-portion-tag">
+                              Portion: {p.quantityUsed} {p.unit || 'kg'}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="genealogy-root-notice">
+                      <span className="root-dot"></span>
+                      <span>This is a primary source Flat Yarn batch (Origin Material).</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* CURRENT ENTITY FOCAL NODE */}
+                <div className="genealogy-focus-node">
+                  <div className="focus-flow-arrow">↓</div>
+                  <div className="focus-node-box">
+                    <div className="focus-badge-row">
+                      <span className={`type-badge-pill ${entity.type}`}>
+                        {getTypeIcon()}
+                        {getTypeLabel()}
+                      </span>
+                      <span className="focus-current-tag">CURRENT BATCH</span>
+                    </div>
+                    <h2 className="focus-title">{entity.batch_id}</h2>
+                    <div className="focus-details">
+                      {entity.supplier && <span>Supplier: {entity.supplier}</span>}
+                      {entity.treatment && <span>Treatment: {entity.treatment}</span>}
+                      {entity.quantity && <span>{entity.quantity} {entity.unit}</span>}
+                    </div>
+                  </div>
+                  <div className="focus-flow-arrow">↓</div>
+                </div>
+
+                {/* DOWNSTREAM DERIVATIVES */}
+                <div className="genealogy-section">
+                  <div className="genealogy-section-title">
+                    <span>DOWNSTREAM DERIVED ENTITIES</span>
+                    <small>Batches manufactured from this material</small>
+                  </div>
+
+                  {genealogy.children.length > 0 ? (
+                    <div className="genealogy-cards-row">
+                      {genealogy.children.map((c) => (
+                        <div
+                          key={c.entityId}
+                          className="genealogy-node-card clickable child"
+                          onClick={() => onNavigateEntity(c.entityId)}
+                        >
+                          <div className="node-card-top">
+                            <span className={`type-badge-pill ${c.type}`}>
+                              {getTypeIcon(c.type)}
+                              {c.type === 'yarn' ? 'Yarn Batch' : 'Rope Batch'}
+                            </span>
+                            <ExternalLink size={14} className="node-link-icon" />
+                          </div>
+                          <strong className="node-batch-id">{c.batchId}</strong>
+                          {c.treatment && <div className="node-meta">{c.treatment}</div>}
+                          {c.quantityUsed && (
+                            <div className="node-portion-tag">
+                              Used: {c.quantityUsed} {c.unit || 'kg'}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="genealogy-empty-notice">
+                      No downstream batches derived from this entity yet.
+                    </div>
+                  )}
+
+                  {genealogy.grandchildren && genealogy.grandchildren.length > 0 && (
+                    <div className="grandchildren-row">
+                      <span className="grandchildren-label">Downstream Rope Batches:</span>
+                      <div className="grandchildren-tags">
+                        {genealogy.grandchildren.map((gc) => (
+                          <button
+                            key={gc.entityId}
+                            className="grandchild-pill-btn"
+                            onClick={() => onNavigateEntity(gc.entityId)}
+                          >
+                            <Anchor size={12} />
+                            <span>{gc.batchId}</span>
+                            <small>(via {gc.viaYarnBatch})</small>
+                          </button>
                         ))}
                       </div>
-                    ) : (
-                      <div className="genealogy-root-notice">
-                        <span className="root-dot"></span>
-                        <span>This is a primary source Flat Yarn batch (Origin Material).</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* CURRENT ENTITY FOCAL NODE */}
-                  <div className="genealogy-focus-node">
-                    <div className="focus-flow-arrow">↓</div>
-                    <div className="focus-node-box">
-                      <div className="focus-badge-row">
-                        <span className={`type-badge-pill ${entity.type}`}>
-                          {getTypeIcon()}
-                          {getTypeLabel()}
-                        </span>
-                        <span className="focus-current-tag">CURRENT BATCH</span>
-                      </div>
-                      <h2 className="focus-title">{entity.batch_id}</h2>
-                      <div className="focus-details">
-                        {entity.supplier && <span>Supplier: {entity.supplier}</span>}
-                        {entity.treatment && <span>Treatment: {entity.treatment}</span>}
-                        {entity.quantity && <span>{entity.quantity} {entity.unit}</span>}
-                      </div>
                     </div>
-                    <div className="focus-flow-arrow">↓</div>
-                  </div>
+                  )}
 
-                  {/* DOWNSTREAM DERIVATIVES / CHILDREN (USED IN WHAT?) */}
-                  <div className="genealogy-section">
-                    <div className="genealogy-section-title">
-                      <span>DOWNSTREAM DERIVED ENTITIES</span>
-                      <small>Batches manufactured from this material</small>
-                    </div>
-
-                    {genealogy.children.length > 0 ? (
-                      <div className="genealogy-cards-row">
-                        {genealogy.children.map((c) => (
-                          <div
-                            key={c.entityId}
-                            className="genealogy-node-card clickable child"
-                            onClick={() => onNavigateEntity(c.entityId)}
+                  {genealogy.grandparents && genealogy.grandparents.length > 0 && (
+                    <div className="grandchildren-row">
+                      <span className="grandchildren-label">Original Flat Yarn Sources:</span>
+                      <div className="grandchildren-tags">
+                        {genealogy.grandparents.map((gp) => (
+                          <button
+                            key={gp.entityId}
+                            className="grandchild-pill-btn"
+                            onClick={() => onNavigateEntity(gp.entityId)}
                           >
-                            <div className="node-card-top">
-                              <span className={`type-badge-pill ${c.type}`}>
-                                {getTypeIcon(c.type)}
-                                {c.type === 'yarn' ? 'Yarn Batch' : 'Rope Batch'}
-                              </span>
-                              <ExternalLink size={14} className="node-link-icon" />
-                            </div>
-                            <strong className="node-batch-id">{c.batchId}</strong>
-                            {c.treatment && <div className="node-meta">{c.treatment}</div>}
-                            {c.quantityUsed && (
-                              <div className="node-portion-tag">
-                                Used: {c.quantityUsed} {c.unit || 'kg'}
-                              </div>
-                            )}
-                          </div>
+                            <Layers size={12} />
+                            <span>{gp.batchId}</span>
+                            {gp.supplier && <small>({gp.supplier})</small>}
+                          </button>
                         ))}
                       </div>
-                    ) : (
-                      <div className="genealogy-empty-notice">
-                        No downstream batches derived from this entity yet.
-                      </div>
-                    )}
-
-                    {/* Grandchildren (e.g. downstream ropes if flat yarn) */}
-                    {genealogy.grandchildren && genealogy.grandchildren.length > 0 && (
-                      <div className="grandchildren-row">
-                        <span className="grandchildren-label">Downstream Rope Batches:</span>
-                        <div className="grandchildren-tags">
-                          {genealogy.grandchildren.map((gc) => (
-                            <button
-                              key={gc.entityId}
-                              className="grandchild-pill-btn"
-                              onClick={() => onNavigateEntity(gc.entityId)}
-                            >
-                              <Anchor size={12} />
-                              <span>{gc.batchId}</span>
-                              <small>(via {gc.viaYarnBatch})</small>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Grandparents (e.g. original flat yarn if rope) */}
-                    {genealogy.grandparents && genealogy.grandparents.length > 0 && (
-                      <div className="grandchildren-row">
-                        <span className="grandchildren-label">Original Flat Yarn Sources:</span>
-                        <div className="grandchildren-tags">
-                          {genealogy.grandparents.map((gp) => (
-                            <button
-                              key={gp.entityId}
-                              className="grandchild-pill-btn"
-                              onClick={() => onNavigateEntity(gp.entityId)}
-                            >
-                              <Layers size={12} />
-                              <span>{gp.batchId}</span>
-                              {gp.supplier && <small>({gp.supplier})</small>}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* TAB CONTENT 2: PROCESSES / LIFECYCLE */}
-      {activeTab === 'processes' && (
-        <div className="tab-pane-content">
-          <div className="panel-card">
-            <div className="panel-head">
-              <div>
-                <h3>Manufacturing Processes & Lifecycle</h3>
-                <p className="panel-head-sub">
-                  Chronological record of manufacturing treatments, heat-setting, twisting, braiding, and finishing operations.
-                </p>
-              </div>
-              <button className="primary-button" onClick={onOpenAddProcessModal}>
-                <Plus size={15} /> + Add Process
-              </button>
+        {/* SECTION 3: Manufacturing Processes */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <Clock size={16} className="section-icon" />
+              <h2>Manufacturing Processes <span className="section-count">({entity.processes.length})</span></h2>
             </div>
-
+            <button className="primary-button" onClick={onOpenAddProcessModal}>
+              <Plus size={15} /> Add Process
+            </button>
+          </div>
+          <div className="panel-card">
             <div className="panel-body">
               {entity.processes.length === 0 ? (
                 <div className="empty-section-state">
@@ -567,9 +520,7 @@ export function EntityDetail({
                         )}
 
                         {proc.remarks && (
-                          <p className="process-remarks">
-                            {proc.remarks}
-                          </p>
+                          <p className="process-remarks">{proc.remarks}</p>
                         )}
                       </div>
                     </div>
@@ -579,11 +530,15 @@ export function EntityDetail({
             </div>
           </div>
         </div>
-      )}
 
-      {/* TAB CONTENT 3: PARAMETERS & TESTS */}
-      {activeTab === 'qc' && (
-        <div className="tab-pane-content">
+        {/* SECTION 4: Parameters & Tests (side-by-side) */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <FlaskConical size={16} className="section-icon" />
+              <h2>Parameters & Tests <span className="section-count">({entity.parameters.length + entity.tests.length})</span></h2>
+            </div>
+          </div>
           <div className="qc-columns-grid">
             {/* Parameters Card */}
             <div className="panel-card">
@@ -593,7 +548,7 @@ export function EntityDetail({
                   <p className="panel-head-sub">Flexible values (e.g. BS, Elongation, Denier, TPM, S, BWS)</p>
                 </div>
                 <button className="secondary-button" onClick={onOpenAddParamModal}>
-                  <Plus size={14} /> + Parameter
+                  <Plus size={14} /> Parameter
                 </button>
               </div>
 
@@ -646,7 +601,7 @@ export function EntityDetail({
               </div>
             </div>
 
-            {/* Tests & QC Observations Card */}
+            {/* Tests & QC Card */}
             <div className="panel-card">
               <div className="panel-head">
                 <div>
@@ -654,7 +609,7 @@ export function EntityDetail({
                   <p className="panel-head-sub">QC breakdown tests, sample inspections, and physical testing</p>
                 </div>
                 <button className="secondary-button" onClick={onOpenAddTestModal}>
-                  <Plus size={14} /> + Record Test
+                  <Plus size={14} /> Record Test
                 </button>
               </div>
 
@@ -700,24 +655,19 @@ export function EntityDetail({
             </div>
           </div>
         </div>
-      )}
 
-      {/* TAB CONTENT 4: EVIDENCE & ATTACHMENTS */}
-      {activeTab === 'evidence' && (
-        <div className="tab-pane-content">
-          <div className="panel-card">
-            <div className="panel-head">
-              <div>
-                <h3>Evidence & Documents</h3>
-                <p className="panel-head-sub">
-                  Attach Certificates of Analysis, physical inspection photos, spectrometer curves, or PDF reports.
-                </p>
-              </div>
-              <button className="primary-button" onClick={onOpenUploadEvidenceModal}>
-                <Plus size={15} /> + Upload Evidence
-              </button>
+        {/* SECTION 5: Evidence & Documents */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <Paperclip size={16} className="section-icon" />
+              <h2>Evidence & Documents <span className="section-count">({entity.evidence.length})</span></h2>
             </div>
-
+            <button className="primary-button" onClick={onOpenUploadEvidenceModal}>
+              <Plus size={15} /> Upload Evidence
+            </button>
+          </div>
+          <div className="panel-card">
             <div className="panel-body">
               {entity.evidence.length === 0 ? (
                 <div className="empty-section-state">
@@ -764,21 +714,16 @@ export function EntityDetail({
             </div>
           </div>
         </div>
-      )}
 
-      {/* TAB CONTENT 5: AUDIT TRAIL */}
-      {activeTab === 'audit' && (
-        <div className="tab-pane-content">
-          <div className="panel-card">
-            <div className="panel-head">
-              <div>
-                <h3>Chronological Audit History</h3>
-                <p className="panel-head-sub">
-                  Immutable record of who, when, and what changed across this entity's lifecycle.
-                </p>
-              </div>
+        {/* SECTION 6: Audit History */}
+        <div className="lifecycle-section">
+          <div className="lifecycle-section-head">
+            <div className="lifecycle-section-title">
+              <History size={16} className="section-icon" />
+              <h2>Audit History <span className="section-count">({entity.auditLogs.length})</span></h2>
             </div>
-
+          </div>
+          <div className="panel-card">
             <div className="panel-body">
               {entity.auditLogs.length === 0 ? (
                 <div className="empty-section-state mini">
@@ -819,7 +764,8 @@ export function EntityDetail({
             </div>
           </div>
         </div>
-      )}
+
+      </div>
     </div>
   )
 }

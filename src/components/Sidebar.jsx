@@ -4,7 +4,6 @@ import {
   Layers,
   Cpu,
   Anchor,
-  History,
   Database,
   RefreshCw,
   LogOut,
@@ -36,10 +35,9 @@ export function Sidebar({
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'flat_yarn', label: 'Flat Yarn Batches', icon: Layers, count: counts.flat_yarn },
-    { id: 'yarn', label: 'Yarn Batches', icon: Cpu, count: counts.yarn },
     { id: 'rope', label: 'Rope Batches', icon: Anchor, count: counts.rope },
-    { id: 'audit', label: 'Audit Trail', icon: History, count: counts.audit },
+    { id: 'yarn', label: 'Yarn Batches', icon: Cpu, count: counts.yarn },
+    { id: 'flat_yarn', label: 'Flat Yarn Batches', icon: Layers, count: counts.flat_yarn },
   ]
 
   const handleNav = (id) => {

@@ -27,9 +27,7 @@ export function Login({ onLogin, error, setError }) {
       }
     }
 
-    // If local or offline or fallback
     if (!supabase) {
-      // Local fallback mock login
       const mockSession = {
         user: {
           id: 'user-operator',
@@ -51,9 +49,9 @@ export function Login({ onLogin, error, setError }) {
     const mockSession = {
       user: {
         id: role === 'admin' ? 'usr-admin-1' : 'usr-op-1',
-        email: role === 'admin' ? 'arjun.admin@namah.internal' : 'priya.operator@namah.internal',
+        email: role === 'admin' ? 'Rohan.Biswas@namah.internal' : 'rahul.jain@anamah.internal',
         user_metadata: {
-          full_name: role === 'admin' ? 'Arjun Sharma' : 'Priya Kapoor',
+          full_name: role === 'admin' ? 'Rohan Biswas' : 'Rahul Jain',
           role,
         },
       },
@@ -62,21 +60,17 @@ export function Login({ onLogin, error, setError }) {
   }
 
   return (
-    <div className="login-page">
+    <div className="login-page login-page--centered">
       <div className="login-panel">
         <div className="login-brand-head">
           <img src="/namah-logo.webp" alt="Namah Logo" className="login-brand-img" />
           <span className="login-trace-badge">TRACE V1</span>
         </div>
 
-        <p className="eyebrow">OPERATIONAL TRACEABILITY SYSTEM</p>
-        <h1 className="login-heading">
-          Welcome to
-          <br />
-          <em>Namah Trace.</em>
-        </h1>
+        <p className="eyebrow">OPERATIONAL TPACEABIMITY SYSTEM</p>
+        <h1 className="login-heading">Namah Trace</h1>
         <p className="login-copy">
-          From incoming flat yarn to certified braided rope. Every lot, process parameter, and genealogical link accounted for.
+          Internal manufacturing traceability. Flat Yarn to Yarn Batch to Rope Batch.
         </p>
 
         {error && (
@@ -103,7 +97,7 @@ export function Login({ onLogin, error, setError }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
-              placeholder="••••••••"
+              placeholder="…………………"
               required
             />
           </label>
@@ -113,9 +107,8 @@ export function Login({ onLogin, error, setError }) {
           </button>
         </form>
 
-        {/* Quick Demo Login Option */}
         <div className="demo-login-divider">
-          <span>OR INSTANT WORKSPACE ACCESS</span>
+          <span>SIGN IN AS</span>
         </div>
 
         <div className="demo-login-buttons-grid">
@@ -126,8 +119,8 @@ export function Login({ onLogin, error, setError }) {
           >
             <ShieldCheck size={16} className="text-navy" />
             <div>
-              <strong>Arjun Sharma</strong>
-              <small>Production Lead (Admin)</small>
+              <strong>Rohan Biswas</strong>
+              <small>Admin</small>
             </div>
           </button>
           <button
@@ -137,29 +130,15 @@ export function Login({ onLogin, error, setError }) {
           >
             <UserCheck size={16} className="text-blue" />
             <div>
-              <strong>Priya Kapoor</strong>
-              <small>Floor Operator (Operator)</small>
+              <strong>Rahul Jain</strong>
+              <small>Operations Manager</small>
             </div>
           </button>
         </div>
 
         <p className="login-foot">
-          <ShieldCheck size={14} /> Internal Namah Ropes Operational Network · V1 Production
+          <ShieldCheck size={14} /> Internal Namah Ropes Network
         </p>
-      </div>
-
-      <div className="login-aside">
-        <div className="rope-lines"></div>
-        <div className="aside-quote-content">
-          <p className="aside-sub">NAMAH MANUFACTURING EXCELLENCE</p>
-          <strong className="aside-quote">
-            "Genealogy is truth. Capture reality as it happens."
-          </strong>
-          <div className="aside-specs">
-            <span>FLAT YARN → YARN → ROPE</span>
-            <span>EN 892 · EN 1891 · UIAA</span>
-          </div>
-        </div>
       </div>
     </div>
   )

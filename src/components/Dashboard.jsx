@@ -48,10 +48,10 @@ export function Dashboard({
       {/* Hero / Operational Title Banner */}
       <div className="dashboard-hero">
         <div className="dashboard-hero-content">
-          <p className="eyebrow">NAMAH ROPES · INTERNAL MANUFACTURING WORKSPACE</p>
-          <h1 className="dashboard-title">Traceability & Genealogy Matrix</h1>
+          <p className="eyebrow">NAMAH Trace · INTERNAL MANUFACTURING WORKSPACE</p>
+          <h1 className="dashboard-title">Traceability Matrix</h1>
           <p className="dashboard-subtitle">
-            Genealogical lifecycle tracking from incoming Flat Yarn through Twisting & Treatment to Finished Braided Rope.
+            Flat Yarn to Yarn Batch to Rope Batch. Every lot, parameter, and genealogical link recorded.
           </p>
         </div>
 
@@ -121,7 +121,7 @@ export function Dashboard({
           </div>
           <p className="metric-caption">Braided & kernmantle output (e.g. 5417)</p>
         </div>
-
+        {/*
         <div className="metric-card">
           <div className="metric-header">
             <span className="metric-label">IN PROGRESS RUNS</span>
@@ -135,45 +135,46 @@ export function Dashboard({
           </div>
           <p className="metric-caption">{completedCount} batches marked completed</p>
         </div>
+*/}
       </div>
 
       {/* The 3 Core Entity Tiers (Visual Matrix) */}
       <div className="matrix-columns-section">
         <div className="section-title-bar">
           <div>
-            <h2>Core Entity Architecture</h2>
+            <h2>Batch Overview</h2>
             <p>Direct lineage flows from Flat Yarn into Yarn Batches and combines into Rope Batches.</p>
           </div>
         </div>
 
         <div className="tier-columns-grid">
-          {/* Tier 1: Flat Yarn */}
+          {/* Tier 1: Rope Batches (Finished Goods — shown first) */}
           <div className="tier-column">
-            <div className="tier-column-head amber-border">
+            <div className="tier-column-head navy-border">
               <div className="tier-title-wrap">
                 <span className="tier-step-num">1</span>
                 <div>
-                  <h3>Flat Yarn Batches</h3>
-                  <small>Incoming Raw Material</small>
+                  <h3>Rope Batches</h3>
+                  <small>Finished Braided Material</small>
                 </div>
               </div>
               <button
                 className="tier-view-all-btn"
-                onClick={() => onNavigateView('flat_yarn')}
+                onClick={() => onNavigateView('rope')}
               >
-                View all ({flatYarns.length}) <ArrowRight size={13} />
+                View all ({ropes.length}) <ArrowRight size={13} />
               </button>
             </div>
 
             <div className="tier-cards-list">
-              {flatYarns.slice(0, 4).map((item) => (
+              {ropes.slice(0, 4).map((item) => (
                 <div
                   key={item.id}
                   className="tier-item-card"
                   onClick={() => onSelectEntity(item.id)}
                 >
                   <div className="tier-item-top">
-                    <div className="tier-batch-id-badge amber">
+                    <div className="tier-batch-id-badge navy">
                       {item.batch_id}
                     </div>
                     <span className={`status-pill ${item.status?.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -182,13 +183,12 @@ export function Dashboard({
                   </div>
                   <div className="tier-item-info">
                     <div className="info-kv">
-                      <span>Supplier:</span>
-                      <strong>{item.supplier || 'Unspecified'}</strong>
+                      <span>Quantity:</span>
+                      <strong>{item.quantity ? `${item.quantity} ${item.unit || 'm'}` : 'In Production'}</strong>
                     </div>
-                    {item.quantity && (
-                      <div className="info-kv">
-                        <span>Quantity:</span>
-                        <span>{item.quantity} {item.unit || 'kg'}</span>
+                    {item.notes && (
+                      <div className="info-kv notes-line">
+                        <small>{item.notes.slice(0, 48)}...</small>
                       </div>
                     )}
                   </div>
@@ -198,8 +198,8 @@ export function Dashboard({
                   </div>
                 </div>
               ))}
-              {flatYarns.length === 0 && (
-                <div className="tier-empty-card">No flat yarn batches registered yet.</div>
+              {ropes.length === 0 && (
+                <div className="tier-empty-card">No rope batches recorded yet.</div>
               )}
             </div>
           </div>
@@ -261,33 +261,33 @@ export function Dashboard({
             </div>
           </div>
 
-          {/* Tier 3: Rope Batches */}
+          {/* Tier 3: Flat Yarn */}
           <div className="tier-column">
-            <div className="tier-column-head navy-border">
+            <div className="tier-column-head amber-border">
               <div className="tier-title-wrap">
                 <span className="tier-step-num">3</span>
                 <div>
-                  <h3>Rope Batches</h3>
-                  <small>Finished Braided Material</small>
+                  <h3>Flat Yarn Batches</h3>
+                  <small>Incoming Raw Material</small>
                 </div>
               </div>
               <button
                 className="tier-view-all-btn"
-                onClick={() => onNavigateView('rope')}
+                onClick={() => onNavigateView('flat_yarn')}
               >
-                View all ({ropes.length}) <ArrowRight size={13} />
+                View all ({flatYarns.length}) <ArrowRight size={13} />
               </button>
             </div>
 
             <div className="tier-cards-list">
-              {ropes.slice(0, 4).map((item) => (
+              {flatYarns.slice(0, 4).map((item) => (
                 <div
                   key={item.id}
                   className="tier-item-card"
                   onClick={() => onSelectEntity(item.id)}
                 >
                   <div className="tier-item-top">
-                    <div className="tier-batch-id-badge navy">
+                    <div className="tier-batch-id-badge amber">
                       {item.batch_id}
                     </div>
                     <span className={`status-pill ${item.status?.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -296,12 +296,13 @@ export function Dashboard({
                   </div>
                   <div className="tier-item-info">
                     <div className="info-kv">
-                      <span>Quantity:</span>
-                      <strong>{item.quantity ? `${item.quantity} ${item.unit || 'm'}` : 'In Production'}</strong>
+                      <span>Supplier:</span>
+                      <strong>{item.supplier || 'Unspecified'}</strong>
                     </div>
-                    {item.notes && (
-                      <div className="info-kv notes-line">
-                        <small>{item.notes.slice(0, 48)}...</small>
+                    {item.quantity && (
+                      <div className="info-kv">
+                        <span>Quantity:</span>
+                        <span>{item.quantity} {item.unit || 'kg'}</span>
                       </div>
                     )}
                   </div>
@@ -311,8 +312,8 @@ export function Dashboard({
                   </div>
                 </div>
               ))}
-              {ropes.length === 0 && (
-                <div className="tier-empty-card">No rope batches recorded yet.</div>
+              {flatYarns.length === 0 && (
+                <div className="tier-empty-card">No flat yarn batches registered yet.</div>
               )}
             </div>
           </div>
@@ -323,15 +324,9 @@ export function Dashboard({
       <div className="dashboard-audit-section">
         <div className="section-title-bar">
           <div>
-            <h2>Recent Operational Activity</h2>
-            <p>Chronological trace audit log of material additions, parameters, and status updates.</p>
+            <h2>Recent Activity</h2>
+            <p>Chronological audit log of material additions, parameters, and status updates.</p>
           </div>
-          <button
-            className="secondary-button"
-            onClick={() => onNavigateView('audit')}
-          >
-            Full Audit Log
-          </button>
         </div>
 
         <div className="activity-timeline-card">
