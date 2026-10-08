@@ -33,11 +33,12 @@ export function AddProcessModal({ onClose, onSave }) {
     setBusy(true)
     setError('')
     try {
-      await onSave({
+      const result = await onSave({
         processName: processName.trim(),
         specification: specification.trim(),
         remarks: remarks.trim(),
       })
+      if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save process record')

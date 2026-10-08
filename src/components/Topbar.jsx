@@ -19,16 +19,17 @@ export function Topbar({
   onSelectEntity,
   onOpenCreateModal,
   storageMode,
-  user,
+  profile,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
+  const [searchError, setSearchError] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [createMenuOpen, setCreateMenuOpen] = useState(false)
   const searchRef = useRef(null)
   const createMenuRef = useRef(null)
 
-  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
+  const displayName = profile?.display_name || 'Namah User'
   const initials = displayName
     .split(/\s+/)
     .map((p) => p[0])
@@ -41,16 +42,26 @@ export function Topbar({
     if (!searchQuery.trim()) {
       setSearchResults([])
       setSearchOpen(false)
+      setSearchError('')
       return
     }
 
     let active = true
-    searchTrace(searchQuery).then((results) => {
-      if (active) {
-        setSearchResults(results)
-        setSearchOpen(true)
-      }
-    })
+    searchTrace(searchQuery)
+      .then((results) => {
+        if (active) {
+          setSearchResults(results)
+          setSearchError('')
+          setSearchOpen(true)
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setSearchResults([])
+          setSearchError(error.message || 'Search failed.')
+          setSearchOpen(true)
+        }
+      })
 
     return () => {
       active = false
@@ -137,7 +148,9 @@ export function Topbar({
                 <span>Search results for "{searchQuery}"</span>
                 <small>{searchResults.length} found</small>
               </div>
-              {searchResults.length === 0 ? (
+              {searchError ? (
+                <div className="search-no-results" role="alert">{searchError}</div>
+              ) : searchResults.length === 0 ? (
                 <div className="search-no-results">
                   No matching batch IDs, parameters, or records found.
                 </div>
@@ -239,14 +252,14 @@ export function Topbar({
         </div>
 
         {/* Storage State Indicator */}
-        <div className="storage-mode-indicator" title={storageMode === 'supabase' ? 'Connected to Supabase' : 'Running in Local Storage Mode'}>
+        <div className="storage-mode-indicator" title={storageMode === 'supabase' ? 'Connected to Supabase' : 'Supabase is unavailable'}>
           {storageMode === 'supabase' ? (
             <span className="storage-mode-pill cloud">
               <Cloud size={13} /> Supabase Live
             </span>
           ) : (
-            <span className="storage-mode-pill local">
-              <HardDrive size={13} /> Local Mode
+            <span className="storage-mode-pill unavailable">
+              <HardDrive size={13} /> Unavailable
             </span>
           )}
         </div>

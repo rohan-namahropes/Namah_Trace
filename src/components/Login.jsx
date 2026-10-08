@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ArrowUpRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react'
+import { ArrowUpRight, ShieldCheck, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 export function Login({ onLogin, error, setError }) {
@@ -11,52 +11,20 @@ export function Login({ onLogin, error, setError }) {
     e.preventDefault()
     setBusy(true)
     setError('')
-
-    if (supabase) {
-      try {
-        const res = await supabase.auth.signInWithPassword({ email, password })
-        if (res.error) {
-          setError(res.error.message)
-        } else if (res.data.session) {
-          onLogin(res.data.session)
-          return
-        }
-      } catch (err) {
-        console.warn('Supabase sign-in error:', err)
-        setError(err.message || 'Supabase authentication failed')
-      }
-    }
-
     if (!supabase) {
-      const mockSession = {
-        user: {
-          id: 'user-operator',
-          email,
-          user_metadata: {
-            full_name: email.split('@')[0] || 'Operator',
-            role: email.includes('admin') ? 'admin' : 'operator',
-          },
-        },
-      }
-      onLogin(mockSession)
+      setError('Supabase is not configured. Configure the project URL and anon key before signing in.')
+      setBusy(false)
+      return
     }
 
+    try {
+      const res = await supabase.auth.signInWithPassword({ email, password })
+      if (res.error) setError(res.error.message)
+      else if (res.data.session) onLogin(res.data.session)
+    } catch (err) {
+      setError(err.message || 'Supabase authentication failed')
+    }
     setBusy(false)
-  }
-
-  const handleQuickDemoLogin = (role) => {
-    setError('')
-    const mockSession = {
-      user: {
-        id: role === 'admin' ? 'usr-admin-1' : 'usr-op-1',
-        email: role === 'admin' ? 'Rohan.Biswas@namah.internal' : 'rahul.jain@anamah.internal',
-        user_metadata: {
-          full_name: role === 'admin' ? 'Rohan Biswas' : 'Rahul Jain',
-          role,
-        },
-      },
-    }
-    onLogin(mockSession)
   }
 
   return (
@@ -73,10 +41,10 @@ export function Login({ onLogin, error, setError }) {
           Internal manufacturing traceability. Flat Yarn to Yarn Batch to Rope Batch.
         </p>
 
-        {error && (
+        {(error || !supabase) && (
           <div className="login-error-box">
             <AlertCircle size={15} />
-            <span>{error}</span>
+            <span>{error || 'Supabase is not configured. Operational data requires a Supabase connection.'}</span>
           </div>
         )}
 
@@ -101,40 +69,11 @@ export function Login({ onLogin, error, setError }) {
               required
             />
           </label>
-          <button className="primary-button full" disabled={busy}>
+          <button className="primary-button full" disabled={busy || !supabase}>
             {busy ? 'Verifying session...' : 'Sign in to Workspace'}{' '}
             <ArrowUpRight size={17} />
           </button>
         </form>
-
-        <div className="demo-login-divider">
-          <span>SIGN IN AS</span>
-        </div>
-
-        <div className="demo-login-buttons-grid">
-          <button
-            type="button"
-            className="secondary-button demo-btn"
-            onClick={() => handleQuickDemoLogin('admin')}
-          >
-            <ShieldCheck size={16} className="text-navy" />
-            <div>
-              <strong>Rohan Biswas</strong>
-              <small>Admin</small>
-            </div>
-          </button>
-          <button
-            type="button"
-            className="secondary-button demo-btn"
-            onClick={() => handleQuickDemoLogin('operator')}
-          >
-            <UserCheck size={16} className="text-blue" />
-            <div>
-              <strong>Rahul Jain</strong>
-              <small>Operations Manager</small>
-            </div>
-          </button>
-        </div>
 
         <p className="login-foot">
           <ShieldCheck size={14} /> Internal Namah Ropes Network

@@ -413,7 +413,7 @@ code, .mono {
   font-weight: 600;
 }
 
-.storage-pill.local {
+.storage-pill.unavailable {
   background-color: #fef3c7;
   color: #92400e;
 }
@@ -871,7 +871,7 @@ code, .mono {
   border-color: #bae6fd;
 }
 
-.storage-mode-pill.local {
+.storage-mode-pill.unavailable {
   background-color: #fef3c7;
   color: #92400e;
   border-color: #fde68a;
@@ -2742,6 +2742,11 @@ code, .mono {
 
 .yarn-select-item.selected {
   background-color: var(--brand-navy-light);
+}
+
+.yarn-select-item.unavailable {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .custom-checkbox {

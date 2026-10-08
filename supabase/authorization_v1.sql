@@ -1,25 +1,19 @@
--- ==============================================================================
--- NAMAH TRACE V1 — Production Database Schema
--- Flexible Manufacturing Traceability for Flat Yarn -> Yarn -> Rope
--- ==============================================================================
+-- Namah Trace Admin/Operator authorization foundation.
+-- Safe to re-run against an existing database using the current schema.
+-- This migration does not create or recreate application tables.
 
-create extension if not exists "uuid-ossp";
+begin;
 
--- ------------------------------------------------------------------------------
--- 1. PROFILES & ROLES
--- ------------------------------------------------------------------------------
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text not null,
-  role text not null default 'operator' check (role in ('admin', 'operator')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+-- New users are always provisioned as Operators, regardless of Auth metadata.
+-- Existing profile roles are preserved when the auth.users row is reprocessed.
+alter table public.profiles
+  alter column role set default 'operator';
 
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
-security definer set search_path = public
+security definer
+set search_path = public
 as $$
 begin
   insert into public.profiles (id, display_name, role)
@@ -38,139 +32,9 @@ $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+  for each row execute function public.handle_new_user();
 
--- ------------------------------------------------------------------------------
--- 2. CORE ENTITIES (Flat Yarn, Yarn Batch, Rope Batch)
--- ------------------------------------------------------------------------------
-create table if not exists public.entities (
-  id uuid primary key default uuid_generate_v4(),
-  type text not null check (type in ('flat_yarn', 'yarn', 'rope')),
-  batch_id text not null unique,
-  supplier text,             -- Especially for Flat Yarn (e.g. 'ABC')
-  treatment text,            -- Especially for Yarn (e.g. 'Twisting @ 1600 TPM')
-  quantity numeric,          -- Optional portion/quantity
-  unit text,                 -- e.g. 'kg', 'm', 'coils'
-  status text check (status in ('In Progress', 'Completed')),
-  notes text,                -- Remarks / initial observations
-  created_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_entities_batch_id on public.entities(batch_id);
-create index if not exists idx_entities_type on public.entities(type);
-create index if not exists idx_entities_status on public.entities(status);
-create index if not exists idx_entities_created_at on public.entities(created_at desc);
-
--- ------------------------------------------------------------------------------
--- 3. ENTITY GENEALOGY (Parent-Child Directed Graph)
--- ------------------------------------------------------------------------------
--- Flat Yarn -> Yarn Batch (1 parent Flat Yarn per Yarn Batch)
--- Yarn Batch -> Rope Batch (1 or more Yarn Batches per Rope Batch)
-create table if not exists public.entity_genealogy (
-  id uuid primary key default uuid_generate_v4(),
-  parent_entity_id uuid not null references public.entities(id) on delete cascade,
-  child_entity_id uuid not null references public.entities(id) on delete cascade,
-  quantity_used numeric,
-  unit text,
-  remarks text,
-  created_at timestamptz not null default now(),
-  unique (parent_entity_id, child_entity_id)
-);
-
-create index if not exists idx_genealogy_parent on public.entity_genealogy(parent_entity_id);
-create index if not exists idx_genealogy_child on public.entity_genealogy(child_entity_id);
-
--- ------------------------------------------------------------------------------
--- 4. FLEXIBLE PARAMETERS & SPECIFICATIONS
--- ------------------------------------------------------------------------------
--- Dynamic recording: BS, Elongation, Denier, TPM, S, BWS, etc.
-create table if not exists public.entity_parameters (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  name text not null,
-  value text not null,
-  unit text,
-  remarks text,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_params_entity on public.entity_parameters(entity_id);
-
--- ------------------------------------------------------------------------------
--- 5. TESTS & QC OBSERVATIONS
--- ------------------------------------------------------------------------------
-create table if not exists public.entity_tests (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  test_name text not null,
-  value text not null,
-  unit text,
-  remarks text,
-  result text default 'Pass',
-  performed_by uuid references public.profiles(id) on delete set null,
-  tested_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_tests_entity on public.entity_tests(entity_id);
-
--- ------------------------------------------------------------------------------
--- 6. PROCESS & LIFECYCLE RECORDS
--- ------------------------------------------------------------------------------
--- Chronological processes: Heat Setting, Knitting, Twisting, Braiding, Dyeing, etc.
-create table if not exists public.entity_processes (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  process_name text not null,
-  specification text,
-  remarks text,
-  performed_by uuid references public.profiles(id) on delete set null,
-  performed_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_processes_entity on public.entity_processes(entity_id);
-
--- ------------------------------------------------------------------------------
--- 7. EVIDENCE & ATTACHMENTS
--- ------------------------------------------------------------------------------
-create table if not exists public.entity_evidence (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  process_id uuid references public.entity_processes(id) on delete set null,
-  file_name text not null,
-  storage_path text not null,
-  mime_type text,
-  file_size bigint,
-  uploaded_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_evidence_entity on public.entity_evidence(entity_id);
-
--- ------------------------------------------------------------------------------
--- 8. AUDIT HISTORY
--- ------------------------------------------------------------------------------
-create table if not exists public.entity_audit_logs (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  action text not null,
-  field_name text,
-  old_value text,
-  new_value text,
-  details jsonb,
-  performed_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_audit_entity on public.entity_audit_logs(entity_id);
-create index if not exists idx_audit_created_at on public.entity_audit_logs(created_at desc);
-
--- ------------------------------------------------------------------------------
--- 9. TRUSTED ROLE AND ACTOR HELPERS
--- ------------------------------------------------------------------------------
+-- SECURITY DEFINER avoids recursive profile RLS checks inside policies.
 create or replace function public.current_user_is_admin()
 returns boolean
 language sql
@@ -207,6 +71,7 @@ $$;
 revoke all on function public.current_user_has_operational_access() from public, anon;
 grant execute on function public.current_user_has_operational_access() to authenticated;
 
+-- Authenticated client writes cannot spoof or change actor identity.
 create or replace function public.enforce_authenticated_actor()
 returns trigger
 language plpgsql
@@ -233,6 +98,8 @@ begin
 end;
 $$;
 
+revoke all on function public.enforce_authenticated_actor() from public, anon, authenticated;
+
 drop trigger if exists entities_authenticated_actor on public.entities;
 create trigger entities_authenticated_actor
 before insert or update on public.entities
@@ -258,9 +125,7 @@ create trigger audit_authenticated_actor
 before insert or update on public.entity_audit_logs
 for each row execute function public.enforce_authenticated_actor('performed_by');
 
--- ------------------------------------------------------------------------------
--- 10. ROW LEVEL SECURITY (RLS) POLICIES
--- ------------------------------------------------------------------------------
+-- RLS must be enabled for role policies to enforce these permissions.
 alter table public.profiles enable row level security;
 alter table public.entities enable row level security;
 alter table public.entity_genealogy enable row level security;
@@ -270,7 +135,7 @@ alter table public.entity_processes enable row level security;
 alter table public.entity_evidence enable row level security;
 alter table public.entity_audit_logs enable row level security;
 
--- Replace the earlier broad authenticated-user policies safely.
+-- Remove the former broad authenticated-user policies.
 drop policy if exists "Authenticated users can read profiles" on public.profiles;
 drop policy if exists "Authenticated users can manage profiles" on public.profiles;
 drop policy if exists "Authenticated users can read entities" on public.entities;
@@ -288,7 +153,7 @@ drop policy if exists "Authenticated users can manage evidence" on public.entity
 drop policy if exists "Authenticated users can read audit logs" on public.entity_audit_logs;
 drop policy if exists "Authenticated users can insert audit logs" on public.entity_audit_logs;
 
--- Keep this role-policy section safe to reapply after schema updates.
+-- Make replacement policy creation idempotent.
 drop policy if exists "Admins can create profiles" on public.profiles;
 drop policy if exists "Admins can update other profiles" on public.profiles;
 drop policy if exists "Admins can delete other profiles" on public.profiles;
@@ -315,13 +180,14 @@ drop policy if exists "Authenticated users can create evidence metadata" on publ
 drop policy if exists "Authenticated users can update evidence metadata" on public.entity_evidence;
 drop policy if exists "Admins can delete evidence metadata" on public.entity_evidence;
 drop policy if exists "Admins can manage evidence metadata" on public.entity_evidence;
+drop policy if exists "Authenticated users can access evidence" on storage.objects;
 drop policy if exists "Authenticated users can read evidence files" on storage.objects;
 drop policy if exists "Authenticated users can upload evidence files" on storage.objects;
 drop policy if exists "Authenticated users can update evidence files" on storage.objects;
 drop policy if exists "Admins can delete evidence files" on storage.objects;
 
--- Profiles: all authenticated users may read display names; only an Admin can
--- manage another user's profile. The Admin policy intentionally excludes self.
+-- Profiles: authenticated operational users can read profiles; Admins can
+-- manage other users, but cannot alter their own role through this policy.
 create policy "Authenticated users can read profiles"
   on public.profiles for select to authenticated
   using (public.current_user_has_operational_access());
@@ -336,7 +202,7 @@ create policy "Admins can delete other profiles"
   on public.profiles for delete to authenticated
   using (public.current_user_is_admin() and id <> auth.uid());
 
--- Entities: Operators may read/create/update; only Admins may delete.
+-- Operators may read/create/update entities; deletion is Admin-only.
 create policy "Authenticated users can read entities"
   on public.entities for select to authenticated
   using (public.current_user_has_operational_access());
@@ -355,8 +221,7 @@ create policy "Admins can manage entities"
   using (public.current_user_is_admin())
   with check (public.current_user_is_admin());
 
--- Genealogy: direct Operator writes are denied. Quantity allocation is expected
--- to use the existing protected database mechanism. Admins retain full access.
+-- Operator genealogy writes must go through the protected database mechanism.
 create policy "Authenticated users can read genealogy"
   on public.entity_genealogy for select to authenticated
   using (public.current_user_has_operational_access());
@@ -365,7 +230,7 @@ create policy "Admins can manage genealogy"
   using (public.current_user_is_admin())
   with check (public.current_user_is_admin());
 
--- Operational child records: Operators may read/create/update; Admins may delete.
+-- Parameters, tests, and processes: Operator create/update; Admin full access.
 create policy "Authenticated users can read parameters"
   on public.entity_parameters for select to authenticated
   using (public.current_user_has_operational_access());
@@ -377,10 +242,12 @@ create policy "Authenticated users can update parameters"
   using (public.current_user_has_operational_access())
   with check (public.current_user_has_operational_access());
 create policy "Admins can delete parameters"
-  on public.entity_parameters for delete to authenticated using (public.current_user_is_admin());
+  on public.entity_parameters for delete to authenticated
+  using (public.current_user_is_admin());
 create policy "Admins can manage parameters"
   on public.entity_parameters for all to authenticated
-  using (public.current_user_is_admin()) with check (public.current_user_is_admin());
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
 
 create policy "Authenticated users can read tests"
   on public.entity_tests for select to authenticated
@@ -393,10 +260,12 @@ create policy "Authenticated users can update tests"
   using (public.current_user_has_operational_access())
   with check (public.current_user_has_operational_access());
 create policy "Admins can delete tests"
-  on public.entity_tests for delete to authenticated using (public.current_user_is_admin());
+  on public.entity_tests for delete to authenticated
+  using (public.current_user_is_admin());
 create policy "Admins can manage tests"
   on public.entity_tests for all to authenticated
-  using (public.current_user_is_admin()) with check (public.current_user_is_admin());
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
 
 create policy "Authenticated users can read processes"
   on public.entity_processes for select to authenticated
@@ -409,11 +278,14 @@ create policy "Authenticated users can update processes"
   using (public.current_user_has_operational_access())
   with check (public.current_user_has_operational_access());
 create policy "Admins can delete processes"
-  on public.entity_processes for delete to authenticated using (public.current_user_is_admin());
+  on public.entity_processes for delete to authenticated
+  using (public.current_user_is_admin());
 create policy "Admins can manage processes"
   on public.entity_processes for all to authenticated
-  using (public.current_user_is_admin()) with check (public.current_user_is_admin());
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
 
+-- Evidence metadata follows the same Operator/Admin permissions.
 create policy "Authenticated users can read evidence metadata"
   on public.entity_evidence for select to authenticated
   using (public.current_user_has_operational_access());
@@ -425,12 +297,14 @@ create policy "Authenticated users can update evidence metadata"
   using (public.current_user_has_operational_access())
   with check (public.current_user_has_operational_access());
 create policy "Admins can delete evidence metadata"
-  on public.entity_evidence for delete to authenticated using (public.current_user_is_admin());
+  on public.entity_evidence for delete to authenticated
+  using (public.current_user_is_admin());
 create policy "Admins can manage evidence metadata"
   on public.entity_evidence for all to authenticated
-  using (public.current_user_is_admin()) with check (public.current_user_is_admin());
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
 
--- Audit history: append-only for Operators; Admins have full table access.
+-- Audit is append-only for Operators; Admins may manage audit rows.
 create policy "Authenticated users can read audit logs"
   on public.entity_audit_logs for select to authenticated
   using (public.current_user_has_operational_access());
@@ -442,11 +316,12 @@ create policy "Admins can manage audit logs"
   using (public.current_user_is_admin())
   with check (public.current_user_is_admin());
 
--- Storage bucket
+-- Keep evidence private and permit operational users to read/upload/update;
+-- only Admins may delete stored evidence objects.
 insert into storage.buckets (id, name, public)
 values ('evidence', 'evidence', false)
 on conflict (id) do update set public = false;
-drop policy if exists "Authenticated users can access evidence" on storage.objects;
+
 create policy "Authenticated users can read evidence files"
   on storage.objects for select to authenticated
   using (bucket_id = 'evidence' and public.current_user_has_operational_access());
@@ -460,3 +335,5 @@ create policy "Authenticated users can update evidence files"
 create policy "Admins can delete evidence files"
   on storage.objects for delete to authenticated
   using (bucket_id = 'evidence' and public.current_user_is_admin());
+
+commit;

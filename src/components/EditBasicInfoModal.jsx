@@ -28,7 +28,8 @@ export function EditBasicInfoModal({ entity, onClose, onSave }) {
         updates.treatment = treatment.trim()
       }
 
-      await onSave(updates)
+      const result = await onSave(updates)
+      if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to update basic information')

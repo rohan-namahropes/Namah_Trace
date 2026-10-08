@@ -33,24 +33,38 @@ export function CreateEntityModal({
   // Yarn fields
   const [yarnBatchId, setYarnBatchId] = useState('')
   const [selectedParentFlatYarnId, setSelectedParentFlatYarnId] = useState(
-    availableFlatYarns[0]?.id || ''
+    availableFlatYarns.find((entity) => entity.consumptionKnown && entity.quantityRemaining > 0)?.id || ''
   )
   const [treatment, setTreatment] = useState('')
-  const [yarnQuantity, setYarnQuantity] = useState('')
+  const [yarnInputQuantity, setYarnInputQuantity] = useState('')
+  const [yarnOutputQuantity, setYarnOutputQuantity] = useState('')
   const [yarnUnit, setYarnUnit] = useState('kg')
   const [yarnRemarks, setYarnRemarks] = useState('')
 
   // Rope fields
   const [ropeBatchId, setRopeBatchId] = useState('')
   const [selectedParentYarnIds, setSelectedParentYarnIds] = useState([])
+  const [ropeInputQuantities, setRopeInputQuantities] = useState({})
   const [ropeQuantity, setRopeQuantity] = useState('')
   const [ropeUnit, setRopeUnit] = useState('meters')
   const [ropeNotes, setRopeNotes] = useState('')
 
+  const hasAvailableMaterial = (entity) =>
+    entity?.consumptionKnown && entity.quantityRemaining > 0
+
   const handleToggleYarnSelection = (yarnId) => {
-    setSelectedParentYarnIds((prev) =>
-      prev.includes(yarnId) ? prev.filter((id) => id !== yarnId) : [...prev, yarnId]
-    )
+    const parent = availableYarns.find((item) => item.id === yarnId)
+    if (!hasAvailableMaterial(parent)) return
+    if (selectedParentYarnIds.includes(yarnId)) {
+      setSelectedParentYarnIds(selectedParentYarnIds.filter((id) => id !== yarnId))
+      setRopeInputQuantities((current) => {
+        const next = { ...current }
+        delete next[yarnId]
+        return next
+      })
+    } else {
+      setSelectedParentYarnIds([...selectedParentYarnIds, yarnId])
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -75,12 +89,21 @@ export function CreateEntityModal({
         if (!yarnBatchId.trim()) throw new Error('Yarn Batch ID is required (e.g. 523 TA).')
         if (!selectedParentFlatYarnId) throw new Error('You must select exactly one parent Flat Yarn batch.')
         if (!treatment.trim()) throw new Error('Treatment / process is required (e.g. Twisting @ 1600 TPM).')
+        if (!yarnInputQuantity || Number(yarnInputQuantity) <= 0) {
+          throw new Error('Quantity consumed from the Flat Yarn parent is required.')
+        }
+        const flatParent = availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)
+        if (Number(yarnInputQuantity) > Number(flatParent?.quantityRemaining)) {
+          throw new Error(`Requested quantity exceeds the ${flatParent?.quantityRemaining} ${flatParent?.unit} available.`)
+        }
 
         const res = await onCreateYarnBatch({
           batchId: yarnBatchId.trim(),
           parentEntityId: selectedParentFlatYarnId,
           treatment: treatment.trim(),
-          quantity: yarnQuantity ? Number(yarnQuantity) : null,
+          inputQuantity: Number(yarnInputQuantity),
+          inputUnit: flatParent?.unit,
+          quantity: yarnOutputQuantity ? Number(yarnOutputQuantity) : null,
           unit: yarnUnit,
           remarks: yarnRemarks.trim(),
         })
@@ -90,10 +113,25 @@ export function CreateEntityModal({
         if (selectedParentYarnIds.length === 0) {
           throw new Error('You must select at least one parent Yarn Batch for composition.')
         }
+        const allocations = selectedParentYarnIds.map((parentEntityId) => {
+          const parent = availableYarns.find((item) => item.id === parentEntityId)
+          const inputQuantity = ropeInputQuantities[parentEntityId]
+          if (!inputQuantity || Number(inputQuantity) <= 0) {
+            throw new Error(`Enter a positive quantity consumed from Yarn Batch ${parent?.batch_id || ''}.`)
+          }
+          if (Number(inputQuantity) > Number(parent?.quantityRemaining)) {
+            throw new Error(`Requested quantity exceeds the ${parent?.quantityRemaining} ${parent?.unit} available in Yarn Batch ${parent?.batch_id}.`)
+          }
+          return {
+            parentEntityId,
+            quantity: Number(inputQuantity),
+            unit: parent?.unit,
+          }
+        })
 
         const res = await onCreateRopeBatch({
           batchId: ropeBatchId.trim(),
-          parentEntityIds: selectedParentYarnIds,
+          allocations,
           quantity: ropeQuantity ? Number(ropeQuantity) : null,
           unit: ropeUnit,
           notes: ropeNotes.trim(),
@@ -254,8 +292,8 @@ export function CreateEntityModal({
                 >
                   <option value="">-- Choose Flat Yarn Source --</option>
                   {availableFlatYarns.map((fy) => (
-                    <option key={fy.id} value={fy.id}>
-                      Batch {fy.batch_id} (Supplier: {fy.supplier || 'N/A'}{fy.quantity ? ` · ${fy.quantity} ${fy.unit}` : ''})
+                    <option key={fy.id} value={fy.id} disabled={!hasAvailableMaterial(fy)}>
+                      Batch {fy.batch_id} (Supplier: {fy.supplier || 'N/A'} · Available: {fy.consumptionKnown ? `${fy.quantityRemaining} ${fy.unit}` : 'Unknown'})
                     </option>
                   ))}
                 </select>
@@ -292,18 +330,50 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Portion Drawn (Optional)</span>
+                  <span>Quantity Consumed from Flat Yarn *</span>
                   <input
                     type="number"
                     step="any"
+                    min="0"
+                    required
+                    max={availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)?.quantityRemaining}
+                    disabled={!hasAvailableMaterial(availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId))}
                     placeholder="e.g. 100"
-                    value={yarnQuantity}
-                    onChange={(e) => setYarnQuantity(e.target.value)}
+                    value={yarnInputQuantity}
+                    onChange={(e) => setYarnInputQuantity(e.target.value)}
                   />
+                  <small className="field-hint">
+                    Available: {availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)?.consumptionKnown
+                      ? `${availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId).quantityRemaining} ${availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId).unit}`
+                      : 'Unknown'}
+                  </small>
                 </label>
 
                 <label className="form-field">
-                  <span>Unit</span>
+                  <span>Yarn Output Quantity (Optional)</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Produced quantity"
+                    value={yarnOutputQuantity}
+                    onChange={(e) => setYarnOutputQuantity(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-field">
+                  <span>Input Unit</span>
+                  <input
+                    type="text"
+                    value={availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)?.unit || ''}
+                    disabled
+                  />
+                </div>
+
+                <label className="form-field">
+                  <span>Yarn Output Unit</span>
                   <select value={yarnUnit} onChange={(e) => setYarnUnit(e.target.value)}>
                     <option value="kg">kg (Kilograms)</option>
                     <option value="spools">spools</option>
@@ -340,15 +410,16 @@ export function CreateEntityModal({
                     return (
                       <div
                         key={yb.id}
-                        className={`yarn-select-item ${isSelected ? 'selected' : ''}`}
+                        className={`yarn-select-item ${isSelected ? 'selected' : ''} ${!hasAvailableMaterial(yb) ? 'unavailable' : ''}`}
                         onClick={() => handleToggleYarnSelection(yb.id)}
+                        aria-disabled={!hasAvailableMaterial(yb)}
                       >
                         <div className="custom-checkbox">
                           {isSelected && <Check size={14} />}
                         </div>
                         <div className="yarn-item-text">
                           <strong>Batch {yb.batch_id}</strong>
-                          <small>{yb.treatment || 'Standard'} {yb.quantity ? `· ${yb.quantity} ${yb.unit}` : ''}</small>
+                          <small>{yb.treatment || 'Standard'} · Available: {yb.consumptionKnown ? `${yb.quantityRemaining} ${yb.unit}` : 'Unknown'}</small>
                         </div>
                       </div>
                     )
@@ -361,6 +432,31 @@ export function CreateEntityModal({
                 </div>
                 <small className="field-hint">Selected: {selectedParentYarnIds.length} yarn batches</small>
               </label>
+
+              {selectedParentYarnIds.map((parentId) => {
+                const parent = availableYarns.find((item) => item.id === parentId)
+                return (
+                  <label className="form-field" key={parentId}>
+                    <span>Quantity Consumed from Yarn Batch {parent?.batch_id} *</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      max={parent?.quantityRemaining}
+                      value={ropeInputQuantities[parentId] || ''}
+                      onChange={(e) => setRopeInputQuantities((current) => ({
+                        ...current,
+                        [parentId]: e.target.value,
+                      }))}
+                      placeholder={`Available: ${parent?.quantityRemaining} ${parent?.unit}`}
+                    />
+                    <small className="field-hint">
+                      Available: {parent?.quantityRemaining} {parent?.unit}
+                    </small>
+                  </label>
+                )
+              })}
 
               <div className="form-grid-2">
                 <label className="form-field">

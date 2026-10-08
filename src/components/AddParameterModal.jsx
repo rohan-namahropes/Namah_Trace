@@ -39,12 +39,13 @@ export function AddParameterModal({ onClose, onSave }) {
     setBusy(true)
     setError('')
     try {
-      await onSave({
+      const result = await onSave({
         name: name.trim(),
         value: value.trim(),
         unit: unit.trim(),
         remarks: remarks.trim(),
       })
+      if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save parameter')

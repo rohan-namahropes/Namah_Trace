@@ -15,9 +15,9 @@ import {
   addProcess,
   addEvidence,
   getGlobalAuditLogs,
+  getCurrentUserProfile,
   getStorageMode,
   checkSupabaseAvailable,
-  resetWorkspaceToSeed,
 } from './lib/api'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
@@ -34,8 +34,6 @@ import { UploadEvidenceModal } from './components/UploadEvidenceModal'
 import { SqlMigrationModal } from './components/SqlMigrationModal'
 import { Login } from './components/Login'
 
-const DEMO_SESSION_KEY = 'namah_trace_demo_session'
-
 export function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -44,9 +42,11 @@ export function App() {
   const [selectedEntityData, setSelectedEntityData] = useState(null)
   const [entities, setEntities] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
-  const [storageMode, setStorageMode] = useState('local')
+  const [userProfile, setUserProfile] = useState(null)
+  const [storageMode, setStorageMode] = useState('unavailable')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [loginError, setLoginError] = useState('')
+  const [dataError, setDataError] = useState('')
 
   // Modals state
   const [createModal, setCreateModal] = useState({ open: false, type: 'flat_yarn' })
@@ -62,19 +62,14 @@ export function App() {
     let mounted = true
 
     if (supabase) {
-      supabase.auth.getSession().then(({ data }) => {
+      supabase.auth.getSession().then(({ data, error }) => {
         if (!mounted) return
-        if (data.session) {
-          setSession(data.session)
-        } else {
-          // Check local demo session
-          const savedDemo = localStorage.getItem(DEMO_SESSION_KEY)
-          if (savedDemo) {
-            try {
-              setSession(JSON.parse(savedDemo))
-            } catch {}
-          }
-        }
+        if (error) setLoginError(error.message)
+        setSession(data.session)
+        setAuthLoading(false)
+      }).catch((error) => {
+        if (!mounted) return
+        setLoginError(error.message || 'Failed to restore the Supabase session.')
         setAuthLoading(false)
       })
 
@@ -82,9 +77,7 @@ export function App() {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((_event, nextSession) => {
         if (mounted) {
-          if (nextSession) {
-            setSession(nextSession)
-          }
+          setSession(nextSession)
         }
       })
 
@@ -93,36 +86,51 @@ export function App() {
         subscription.unsubscribe()
       }
     } else {
-      // Offline/Local mode
-      const savedDemo = localStorage.getItem(DEMO_SESSION_KEY)
-      if (savedDemo) {
-        try {
-          setSession(JSON.parse(savedDemo))
-        } catch {}
-      }
       setAuthLoading(false)
     }
   }, [])
 
   // 2. Load Entities & Audit Logs
   const refreshData = useCallback(async () => {
-    await checkSupabaseAvailable()
-    setStorageMode(getStorageMode())
+    try {
+      if (!session?.user?.id) return
+      await checkSupabaseAvailable()
+      setStorageMode(getStorageMode())
 
-    const [entRes, auditRes] = await Promise.all([
-      listEntities(),
-      getGlobalAuditLogs(50),
-    ])
+      const [entRes, auditRes, profileRes] = await Promise.all([
+        listEntities(),
+        getGlobalAuditLogs(50),
+        getCurrentUserProfile(session.user.id),
+      ])
+      if (entRes.error) throw entRes.error
+      if (profileRes.error) throw profileRes.error
 
-    if (entRes.data) setEntities(entRes.data)
-    if (auditRes) setAuditLogs(auditRes)
+      setEntities(entRes.data)
+      setAuditLogs(auditRes)
+      setUserProfile(profileRes.data)
 
-    // If an entity is currently selected, refresh its details
-    if (selectedEntityId) {
-      const detailRes = await getEntity(selectedEntityId)
-      if (detailRes.data) setSelectedEntityData(detailRes.data)
+      if (selectedEntityId) {
+        const detailRes = await getEntity(selectedEntityId)
+        if (detailRes.error) throw detailRes.error
+        setSelectedEntityData(detailRes.data)
+      }
+      setDataError('')
+    } catch (error) {
+      setStorageMode('unavailable')
+      setEntities([])
+      setAuditLogs([])
+      setSelectedEntityData(null)
+      setDataError(error.message || 'Unable to load production data from Supabase.')
     }
-  }, [selectedEntityId])
+  }, [selectedEntityId, session?.user?.id])
+
+  useEffect(() => {
+    setUserProfile(null)
+    setEntities([])
+    setAuditLogs([])
+    setSelectedEntityData(null)
+    setDataError('')
+  }, [session?.user?.id])
 
   useEffect(() => {
     if (session) {
@@ -138,9 +146,13 @@ export function App() {
     }
     let mounted = true
     getEntity(selectedEntityId).then((res) => {
-      if (mounted && res.data) {
-        setSelectedEntityData(res.data)
+      if (!mounted) return
+      if (res.error) {
+        setDataError(res.error.message)
+        return
       }
+      setSelectedEntityData(res.data)
+      setDataError('')
     })
     return () => {
       mounted = false
@@ -150,16 +162,29 @@ export function App() {
   // Sign in / Sign out handlers
   const handleLogin = (newSession) => {
     setSession(newSession)
-    localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(newSession))
   }
 
   const handleLogout = async () => {
-    localStorage.removeItem(DEMO_SESSION_KEY)
     if (supabase) {
-      await supabase.auth.signOut()
+      try {
+        const { error } = await supabase.auth.signOut()
+        if (error) throw error
+      } catch (error) {
+        setDataError(`Unable to sign out: ${error.message || 'Supabase sign-out failed.'}`)
+        return
+      }
     }
     setSession(null)
+    setUserProfile(null)
     setSelectedEntityId(null)
+  }
+
+  const finishMutation = async (result) => {
+    if (result.data || result.error?.operationCommitted) {
+      await refreshData()
+    }
+    if (result.error) setDataError(result.error.message)
+    return result
   }
 
   // Navigation handlers
@@ -180,104 +205,68 @@ export function App() {
 
   // Create Handlers
   const handleCreateFlatYarn = async (params) => {
-    const res = await createFlatYarn(params, session?.user)
-    if (res.data) {
-      await refreshData()
-      setSelectedEntityId(res.data.id)
-    }
-    return res
+    const res = await createFlatYarn(params)
+    if (res.data) setSelectedEntityId(res.data.id)
+    return finishMutation(res)
   }
 
   const handleCreateYarnBatch = async (params) => {
-    const res = await createYarnBatch(params, session?.user)
-    if (res.data) {
-      await refreshData()
-      setSelectedEntityId(res.data.id)
-    }
-    return res
+    const res = await createYarnBatch(params)
+    if (res.data) setSelectedEntityId(res.data.id)
+    return finishMutation(res)
   }
 
   const handleCreateRopeBatch = async (params) => {
-    const res = await createRopeBatch(params, session?.user)
-    if (res.data) {
-      await refreshData()
-      setSelectedEntityId(res.data.id)
-    }
-    return res
+    const res = await createRopeBatch(params)
+    if (res.data) setSelectedEntityId(res.data.id)
+    return finishMutation(res)
   }
 
   // Edit Handlers
   const handleUpdateBasicInfo = async (updates) => {
     if (!selectedEntityId) return
-    const res = await updateEntityBasicInfo(selectedEntityId, updates, session?.user)
-    if (res.data) {
-      await refreshData()
-    }
-    return res
+    return finishMutation(await updateEntityBasicInfo(selectedEntityId, updates))
   }
 
   const handleUpdateStatus = async (newStatus) => {
     if (!selectedEntityId) return
-    const res = await updateEntityStatus(selectedEntityId, newStatus, session?.user)
-    if (res.data) {
-      await refreshData()
-    }
-    return res
+    return finishMutation(await updateEntityStatus(selectedEntityId, newStatus))
   }
 
   // Parameter Handlers
   const handleAddParameter = async (param) => {
     if (!selectedEntityId) return
-    const res = await addParameter(selectedEntityId, param, session?.user)
-    if (res.data) await refreshData()
-    return res
+    return finishMutation(await addParameter(selectedEntityId, param))
   }
 
   const handleDeleteParameter = async (paramId, paramName) => {
     if (!selectedEntityId) return
     if (!window.confirm(`Remove parameter "${paramName}"?`)) return
-    const res = await deleteParameter(selectedEntityId, paramId, session?.user)
-    if (res.data) await refreshData()
-    return res
+    return finishMutation(await deleteParameter(selectedEntityId, paramId))
   }
 
   // Test Handlers
   const handleAddTest = async (test) => {
     if (!selectedEntityId) return
-    const res = await addTest(selectedEntityId, test, session?.user)
-    if (res.data) await refreshData()
-    return res
+    return finishMutation(await addTest(selectedEntityId, test))
   }
 
   const handleDeleteTest = async (testId, testName) => {
     if (!selectedEntityId) return
     if (!window.confirm(`Delete test record "${testName}"?`)) return
-    const res = await deleteTest(selectedEntityId, testId, session?.user)
-    if (res.data) await refreshData()
-    return res
+    return finishMutation(await deleteTest(selectedEntityId, testId))
   }
 
   // Process Handlers
   const handleAddProcess = async (proc) => {
     if (!selectedEntityId) return
-    const res = await addProcess(selectedEntityId, proc, session?.user)
-    if (res.data) await refreshData()
-    return res
+    return finishMutation(await addProcess(selectedEntityId, proc))
   }
 
   // Evidence Handlers
   const handleUploadEvidence = async (ev) => {
     if (!selectedEntityId) return
-    const res = await addEvidence(selectedEntityId, ev, session?.user)
-    if (res.data) await refreshData()
-    return res
-  }
-
-  // Reset Demo Workspace Handler
-  const handleResetSeed = () => {
-    resetWorkspaceToSeed()
-    refreshData()
-    setSelectedEntityId(null)
+    return finishMutation(await addEvidence(selectedEntityId, ev))
   }
 
   // Loading state
@@ -295,6 +284,24 @@ export function App() {
   // Not logged in
   if (!session) {
     return <Login onLogin={handleLogin} error={loginError} setError={setLoginError} />
+  }
+
+  if (userProfile?.id !== session.user.id) {
+    return (
+      <div className="login-page">
+        <div className="login-panel">
+          <p className="eyebrow">NAMAH ROPES / OPERATIONS</p>
+          <p className="login-copy">
+            {dataError || 'Loading your production profile...'}
+          </p>
+          {dataError && (
+            <button className="secondary-button" onClick={handleLogout}>
+              Sign out
+            </button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   // Breadcrumbs calculation
@@ -344,9 +351,10 @@ export function App() {
         onClose={() => setMobileNavOpen(false)}
         onLogout={handleLogout}
         user={session.user}
+        profile={userProfile}
+        isAdmin={userProfile.role === 'admin'}
         storageMode={storageMode}
         onOpenSqlModal={() => setSqlModalOpen(true)}
-        onResetSeed={handleResetSeed}
       />
 
       <div className="main-layout-wrap">
@@ -357,14 +365,20 @@ export function App() {
           onSelectEntity={handleSelectEntity}
           onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier || 'flat_yarn' })}
           storageMode={storageMode}
-          user={session.user}
+          profile={userProfile}
         />
 
         {/* Main Content Area */}
         <main className="main-scroll-content">
+          {dataError && (
+            <div className="login-error-box" role="alert">
+              {dataError}
+            </div>
+          )}
           {selectedEntityData ? (
             <EntityDetail
               entity={selectedEntityData}
+              isAdmin={userProfile?.role === 'admin'}
               onBack={handleBackFromDetail}
               onNavigateEntity={handleSelectEntity}
               onOpenEditModal={() => setEditBasicModalOpen(true)}
@@ -458,7 +472,7 @@ export function App() {
         />
       )}
 
-      {sqlModalOpen && (
+      {sqlModalOpen && userProfile.role === 'admin' && (
         <SqlMigrationModal onClose={() => setSqlModalOpen(false)} />
       )}
     </div>

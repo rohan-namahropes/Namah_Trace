@@ -1,993 +1,759 @@
 import { supabase } from './supabase'
 
-const STORAGE_KEY = 'namah_trace_v1_store'
+const EVIDENCE_BUCKET = 'evidence'
 
-// Initial reference seed dataset according to V1 Specification Scenario (Section 26)
-const defaultSeed = {
-  entities: [
-    {
-      id: 'fy-523',
-      type: 'flat_yarn',
-      batch_id: '523',
-      supplier: 'ABC',
-      treatment: null,
-      quantity: 500,
-      unit: 'kg',
-      status: 'In Progress',
-      notes: 'High-tenacity raw polyester flat yarn received from ABC Corp. Good luster and zero visible slubs.',
-      created_by_name: 'Production Operator',
-      created_at: '2026-08-18T08:15:00Z',
-      updated_at: '2026-08-18T10:30:00Z',
-    },
-    {
-      id: 'yb-523-ta',
-      type: 'yarn',
-      batch_id: '523 TA',
-      supplier: null,
-      treatment: 'Twisting @ 1600 TPM',
-      quantity: 100,
-      unit: 'kg',
-      status: 'In Progress',
-      notes: 'Portion drawn from Flat Yarn 523 for core load-bearing strands.',
-      created_by_name: 'Arjun S.',
-      created_at: '2026-08-19T09:00:00Z',
-      updated_at: '2026-08-20T11:45:00Z',
-    },
-    {
-      id: 'yb-523-pb',
-      type: 'yarn',
-      batch_id: '523 PB',
-      supplier: null,
-      treatment: 'Twisting @ 1200 TPM',
-      quantity: 200,
-      unit: 'kg',
-      status: 'In Progress',
-      notes: 'Second portion drawn from Flat Yarn 523 for outer protective sheath.',
-      created_by_name: 'Priya K.',
-      created_at: '2026-08-19T14:30:00Z',
-      updated_at: '2026-08-19T16:00:00Z',
-    },
-    {
-      id: 'rb-5417',
-      type: 'rope',
-      batch_id: '5417',
-      supplier: null,
-      treatment: null,
-      quantity: 300,
-      unit: 'meters',
-      status: 'Completed',
-      notes: '16-strand static kernmantle mountain climbing rope. Batch passed all static tensile tests.',
-      created_by_name: 'Quality Lead',
-      created_at: '2026-08-21T08:00:00Z',
-      updated_at: '2026-08-23T16:30:00Z',
-    },
-  ],
-  genealogy: [
-    // 523 -> 523 TA
-    {
-      id: 'gen-1',
-      parent_entity_id: 'fy-523',
-      child_entity_id: 'yb-523-ta',
-      quantity_used: 100,
-      unit: 'kg',
-      remarks: '100 kg drawn for core yarn twisting',
-      created_at: '2026-08-19T09:00:00Z',
-    },
-    // 523 -> 523 PB
-    {
-      id: 'gen-2',
-      parent_entity_id: 'fy-523',
-      child_entity_id: 'yb-523-pb',
-      quantity_used: 200,
-      unit: 'kg',
-      remarks: '200 kg drawn for sheath yarn twisting',
-      created_at: '2026-08-19T14:30:00Z',
-    },
-    // 523 TA -> 5417
-    {
-      id: 'gen-3',
-      parent_entity_id: 'yb-523-ta',
-      child_entity_id: 'rb-5417',
-      quantity_used: 85,
-      unit: 'kg',
-      remarks: 'Used as inner kern core',
-      created_at: '2026-08-21T08:00:00Z',
-    },
-    // 523 PB -> 5417
-    {
-      id: 'gen-4',
-      parent_entity_id: 'yb-523-pb',
-      child_entity_id: 'rb-5417',
-      quantity_used: 115,
-      unit: 'kg',
-      remarks: 'Used as outer braided mantle',
-      created_at: '2026-08-21T08:00:00Z',
-    },
-  ],
-  parameters: [
-    // 523 parameters
-    { id: 'p-1', entity_id: 'fy-523', name: 'BS', value: '28.4', unit: 'kN', remarks: 'Breaking Strength of virgin filament', created_at: '2026-08-18T09:00:00Z' },
-    { id: 'p-2', entity_id: 'fy-523', name: 'Elongation', value: '3.8', unit: '%', remarks: 'Elongation at break', created_at: '2026-08-18T09:05:00Z' },
-    { id: 'p-3', entity_id: 'fy-523', name: 'Denier', value: '1100', unit: 'D', remarks: 'Linear mass density', created_at: '2026-08-18T09:10:00Z' },
-    // 523 TA parameters
-    { id: 'p-4', entity_id: 'yb-523-ta', name: 'TPM', value: '1600', unit: 'TPM', remarks: 'Twists per meter target', created_at: '2026-08-19T09:15:00Z' },
-    { id: 'p-5', entity_id: 'yb-523-ta', name: 'Twist Direction', value: 'S', unit: '', remarks: 'S-direction twist', created_at: '2026-08-19T09:20:00Z' },
-    // 523 PB parameters
-    { id: 'p-6', entity_id: 'yb-523-pb', name: 'TPM', value: '1200', unit: 'TPM', remarks: 'Sheath twist target', created_at: '2026-08-19T14:40:00Z' },
-    // 5417 parameters
-    { id: 'p-7', entity_id: 'rb-5417', name: 'Diameter', value: '10.5', unit: 'mm', remarks: 'Standard EN 892 specification', created_at: '2026-08-21T09:00:00Z' },
-    { id: 'p-8', entity_id: 'rb-5417', name: 'Linear Mass', value: '68.5', unit: 'g/m', remarks: 'Core + mantle total weight', created_at: '2026-08-21T09:10:00Z' },
-    { id: 'p-9', entity_id: 'rb-5417', name: 'Sheath Slippage', value: '0.12', unit: '%', remarks: 'Within < 0.5% tolerance', created_at: '2026-08-21T09:15:00Z' },
-  ],
-  tests: [
-    { id: 't-1', entity_id: 'fy-523', test_name: 'Tensile Breakdown Test', value: '28.4', unit: 'kN', result: 'Pass', remarks: 'Clear tensile curve, no necking', performed_by_name: 'QC Analyst', tested_at: '2026-08-18T10:00:00Z', created_at: '2026-08-18T10:00:00Z' },
-    { id: 't-2', entity_id: 'yb-523-ta', test_name: 'Twist Uniformity Test', value: '1592', unit: 'TPM', result: 'Pass', remarks: 'Measured across 5 sample segments', performed_by_name: 'Arjun S.', tested_at: '2026-08-19T11:00:00Z', created_at: '2026-08-19T11:00:00Z' },
-    { id: 't-3', entity_id: 'rb-5417', test_name: 'Static Breaking Load', value: '33.2', unit: 'kN', result: 'Pass', remarks: 'Exceeds EN 1891 Type A 22 kN standard', performed_by_name: 'Quality Lead', tested_at: '2026-08-23T14:00:00Z', created_at: '2026-08-23T14:00:00Z' },
-    { id: 't-4', entity_id: 'rb-5417', test_name: 'Static Elongation (50-150kg)', value: '3.2', unit: '%', result: 'Pass', remarks: 'Well below 5% requirement', performed_by_name: 'Quality Lead', tested_at: '2026-08-23T14:30:00Z', created_at: '2026-08-23T14:30:00Z' },
-  ],
-  processes: [
-    { id: 'pr-1', entity_id: 'yb-523-ta', process_name: 'Twisting', specification: '1600 TPM / Spindle Speed 7200 RPM', remarks: 'Twisting completed on Machine #04', performed_by_name: 'Production Operator', performed_at: '2026-08-19T09:30:00Z', created_at: '2026-08-19T09:30:00Z' },
-    { id: 'pr-2', entity_id: 'yb-523-ta', process_name: 'Heat Setting', specification: '180°C / 30 min in steam chamber', remarks: 'Uniform heat penetration. No thermal discolouration.', performed_by_name: 'Production Lead', performed_at: '2026-08-20T10:15:00Z', created_at: '2026-08-20T10:15:00Z' },
-    { id: 'pr-3', entity_id: 'yb-523-pb', process_name: 'Twisting', specification: '1200 TPM Z-twist', remarks: 'Finished without tension spikes', performed_by_name: 'Priya K.', performed_at: '2026-08-19T15:00:00Z', created_at: '2026-08-19T15:00:00Z' },
-    { id: 'pr-4', entity_id: 'rb-5417', process_name: 'Braiding', specification: '16-carrier Herzog braider, core pre-tension 40N', remarks: 'Braiding run completed across 300 meters continuous length.', performed_by_name: 'Arjun S.', performed_at: '2026-08-22T13:00:00Z', created_at: '2026-08-22T13:00:00Z' },
-    { id: 'pr-5', entity_id: 'rb-5417', process_name: 'Finishing & Inspection', specification: 'Hot-knife end sealing and visual defect scan', remarks: 'Sealed both ends with shrink wrap trace labels.', performed_by_name: 'Quality Lead', performed_at: '2026-08-23T15:00:00Z', created_at: '2026-08-23T15:00:00Z' },
-  ],
-  evidence: [
-    { id: 'ev-1', entity_id: 'fy-523', file_name: 'ABC_Certificate_of_Analysis_523.pdf', storage_path: 'mock/523/coa.pdf', mime_type: 'application/pdf', file_size: 245000, uploaded_by_name: 'Production Operator', created_at: '2026-08-18T08:30:00Z' },
-    { id: 'ev-2', entity_id: 'yb-523-ta', file_name: 'Twist_Inspection_Photo_523TA.jpg', storage_path: 'mock/523ta/photo.jpg', mime_type: 'image/jpeg', file_size: 1420000, uploaded_by_name: 'Arjun S.', created_at: '2026-08-19T11:15:00Z' },
-    { id: 'ev-3', entity_id: 'rb-5417', file_name: 'Batch_5417_Conformance_Cert.pdf', storage_path: 'mock/5417/cert.pdf', mime_type: 'application/pdf', file_size: 380000, uploaded_by_name: 'Quality Lead', created_at: '2026-08-23T15:30:00Z' },
-  ],
-  audit_logs: [
-    { id: 'a-1', entity_id: 'fy-523', action: 'Created Flat Yarn Batch 523', field_name: null, old_value: null, new_value: 'Supplier: ABC', performed_by_name: 'Production Operator', created_at: '2026-08-18T08:15:00Z' },
-    { id: 'a-2', entity_id: 'fy-523', action: 'Added parameter BS', field_name: 'BS', old_value: null, new_value: '28.4 kN', performed_by_name: 'Production Operator', created_at: '2026-08-18T09:00:00Z' },
-    { id: 'a-3', entity_id: 'fy-523', action: 'Added parameter Elongation', field_name: 'Elongation', old_value: null, new_value: '3.8 %', performed_by_name: 'Production Operator', created_at: '2026-08-18T09:05:00Z' },
-    { id: 'a-4', entity_id: 'fy-523', action: 'Added parameter Denier', field_name: 'Denier', old_value: null, new_value: '1100 D', performed_by_name: 'Production Operator', created_at: '2026-08-18T09:10:00Z' },
-    { id: 'a-5', entity_id: 'yb-523-ta', action: 'Created Yarn Batch 523 TA', field_name: 'Genealogy', old_value: null, new_value: 'Parent: 523 (100 kg)', performed_by_name: 'Arjun S.', created_at: '2026-08-19T09:00:00Z' },
-    { id: 'a-6', entity_id: 'yb-523-ta', action: 'Added process Heat Setting', field_name: 'Process', old_value: null, new_value: '180°C / 30 min', performed_by_name: 'Production Lead', created_at: '2026-08-20T10:15:00Z' },
-    { id: 'a-7', entity_id: 'yb-523-pb', action: 'Created Yarn Batch 523 PB', field_name: 'Genealogy', old_value: null, new_value: 'Parent: 523 (200 kg)', performed_by_name: 'Priya K.', created_at: '2026-08-19T14:30:00Z' },
-    { id: 'a-8', entity_id: 'rb-5417', action: 'Created Rope Batch 5417', field_name: 'Genealogy', old_value: null, new_value: 'Parents: 523 TA, 523 PB', performed_by_name: 'Quality Lead', created_at: '2026-08-21T08:00:00Z' },
-    { id: 'a-9', entity_id: 'rb-5417', action: 'Status changed to Completed', field_name: 'status', old_value: 'In Progress', new_value: 'Completed', performed_by_name: 'Quality Lead', created_at: '2026-08-23T16:30:00Z' },
-  ],
-}
-
-// Local store helpers
-function getLocalStore() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultSeed))
-      return JSON.parse(JSON.stringify(defaultSeed))
-    }
-    return JSON.parse(raw)
-  } catch (err) {
-    console.error('Error reading localStorage store, using default seed:', err)
-    return JSON.parse(JSON.stringify(defaultSeed))
-  }
-}
-
-function saveLocalStore(store) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
-  } catch (err) {
-    console.error('Error writing to localStorage:', err)
-  }
-}
-
-export function resetWorkspaceToSeed() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultSeed))
-  return JSON.parse(JSON.stringify(defaultSeed))
-}
-
-// Check if Supabase connection is currently active and has the V1 entities table
-let supabaseStatus = { tested: false, available: false }
-
-export async function checkSupabaseAvailable() {
+function requireSupabase() {
   if (!supabase) {
-    supabaseStatus = { tested: true, available: false }
-    return false
+    throw new Error('Supabase is not configured. Configure the project URL and anon key to use Namah Trace.')
   }
-  try {
-    const { error } = await supabase.from('entities').select('id').limit(1)
-    if (error) {
-      // Table doesn't exist yet or connection error
-      supabaseStatus = { tested: true, available: false }
-      return false
-    }
-    supabaseStatus = { tested: true, available: true }
-    return true
-  } catch {
-    supabaseStatus = { tested: true, available: false }
-    return false
-  }
+  return supabase
 }
 
-export function getStorageMode() {
-  return supabaseStatus.available ? 'supabase' : 'local'
+async function queryData(query) {
+  const { data, error } = await query
+  if (error) throw error
+  return data
 }
 
-// ------------------------------------------------------------------------------
-// ENTITY LIST & QUERY FUNCTIONS
-// ------------------------------------------------------------------------------
-
-export async function listEntities(type = null) {
-  const isAvailable = await checkSupabaseAvailable()
-  if (isAvailable) {
-    try {
-      let query = supabase.from('entities').select('*').order('created_at', { ascending: false })
-      if (type) query = query.eq('type', type)
-      const { data, error } = await query
-      if (!error && data) return { data, error: null }
-    } catch (err) {
-      console.warn('Supabase query failed, falling back to local store:', err)
-    }
-  }
-
-  // Local fallback
-  const store = getLocalStore()
-  let list = store.entities
-  if (type) {
-    list = list.filter((e) => e.type === type)
-  }
-  // Sort descending by created_at
-  list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-  return { data: list, error: null }
+async function fetchProfiles(userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))]
+  if (ids.length === 0) return new Map()
+  const rows = await queryData(
+    requireSupabase().from('profiles').select('id, display_name').in('id', ids)
+  )
+  return new Map(rows.map((profile) => [profile.id, profile.display_name]))
 }
 
-export async function getEntity(idOrBatchId) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === idOrBatchId || e.batch_id.toLowerCase() === String(idOrBatchId).toLowerCase())
-  if (!entity) return { data: null, error: new Error('Entity not found') }
+async function writeAuditLog(entityId, action, details = null) {
+  const db = requireSupabase()
+  return queryData(
+    db.from('entity_audit_logs').insert({
+      entity_id: entityId,
+      action,
+      details,
+    }).select().single()
+  )
+}
 
-  const entityId = entity.id
+async function writeAuditLogs(events) {
+  if (events.length === 0) return
+  const db = requireSupabase()
+  const rows = events.map(({ entityId, action, fieldName, oldValue, newValue }) => ({
+    entity_id: entityId,
+    action,
+    details: {
+      field_name: fieldName,
+      old_value: oldValue,
+      new_value: newValue,
+    },
+  }))
+  await queryData(db.from('entity_audit_logs').insert(rows))
+}
 
-  // Parameters
-  const parameters = store.parameters
-    .filter((p) => p.entity_id === entityId)
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+function withAuditDisplayFields(log) {
+  const details = log.details && typeof log.details === 'object' && !Array.isArray(log.details)
+    ? log.details
+    : {}
+  let newValue = details.new_value ?? details.newValue ?? null
 
-  // Tests
-  const tests = store.tests
-    .filter((t) => t.entity_id === entityId)
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-
-  // Processes
-  const processes = store.processes
-    .filter((pr) => pr.entity_id === entityId)
-    .sort((a, b) => new Date(a.performed_at || a.created_at) - new Date(b.performed_at || b.created_at))
-
-  // Evidence
-  const evidence = store.evidence
-    .filter((ev) => ev.entity_id === entityId)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-  // Audit Logs
-  const auditLogs = store.audit_logs
-    .filter((a) => a.entity_id === entityId)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-  // Bidirectional Genealogy Resolution
-  const genealogy = resolveGenealogy(entity, store)
+  if (newValue == null && details.quantity_used != null) {
+    newValue = `${details.quantity_used} ${details.unit || ''}`.trim()
+  }
+  if (
+    newValue == null
+    && details.old_value == null
+    && details.oldValue == null
+    && Object.keys(details).length > 0
+  ) {
+    newValue = JSON.stringify(details)
+  }
+  if (newValue != null && typeof newValue !== 'string') {
+    newValue = JSON.stringify(newValue)
+  }
 
   return {
-    data: {
-      ...entity,
-      parameters,
-      tests,
-      processes,
-      evidence,
-      auditLogs,
-      genealogy,
-    },
-    error: null,
+    ...log,
+    field_name: details.field_name ?? details.fieldName ?? null,
+    old_value: details.old_value ?? details.oldValue ?? null,
+    new_value: newValue,
   }
 }
 
-// Resolve full genealogy tree for an entity
-export function resolveGenealogy(entity, store = getLocalStore()) {
-  const entityId = entity.id
-  const type = entity.type
+function committedAuditError(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  const committedError = new Error(
+    `The operational change was saved, but its audit entry could not be saved: ${message}`
+  )
+  committedError.operationCommitted = true
+  return committedError
+}
 
-  // Direct Parents
-  const parentLinks = store.genealogy.filter((g) => g.child_entity_id === entityId)
-  const parents = parentLinks.map((link) => {
-    const parentEntity = store.entities.find((e) => e.id === link.parent_entity_id)
-    return {
-      linkId: link.id,
-      entityId: link.parent_entity_id,
-      batchId: parentEntity?.batch_id || 'Unknown',
-      type: parentEntity?.type || 'unknown',
-      supplier: parentEntity?.supplier || null,
-      treatment: parentEntity?.treatment || null,
-      quantityUsed: link.quantity_used,
-      unit: link.unit || parentEntity?.unit,
-      remarks: link.remarks,
-    }
-  })
+async function findEntity(idOrBatchId) {
+  const db = requireSupabase()
+  const value = String(idOrBatchId)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    const byId = await queryData(
+      db.from('entities').select('*').eq('id', value).maybeSingle()
+    )
+    if (byId) return byId
+  }
+  return queryData(
+    db.from('entities').select('*').ilike('batch_id', value).maybeSingle()
+  )
+}
 
-  // Grandparents (Original Flat Yarn for Rope batches)
+async function enrichEntities(entities) {
+  if (entities.length === 0) return entities
+  const profiles = await fetchProfiles(entities.map((entity) => entity.created_by))
+  return entities.map((entity) => ({
+    ...entity,
+    created_by_name: profiles.get(entity.created_by) || null,
+  }))
+}
+
+function mapGenealogy(entity, entities, links) {
+  const byId = new Map(entities.map((item) => [item.id, item]))
+  const parents = links
+    .filter((link) => link.child_entity_id === entity.id)
+    .map((link) => {
+      const parent = byId.get(link.parent_entity_id)
+      return {
+        linkId: link.id,
+        entityId: link.parent_entity_id,
+        batchId: parent?.batch_id || 'Unknown',
+        type: parent?.type || 'unknown',
+        supplier: parent?.supplier || null,
+        treatment: parent?.treatment || null,
+        quantityUsed: link.quantity_used,
+        unit: link.unit || parent?.unit,
+        remarks: link.remarks,
+      }
+    })
+  const children = links
+    .filter((link) => link.parent_entity_id === entity.id)
+    .map((link) => {
+      const child = byId.get(link.child_entity_id)
+      return {
+        linkId: link.id,
+        entityId: link.child_entity_id,
+        batchId: child?.batch_id || 'Unknown',
+        type: child?.type || 'unknown',
+        treatment: child?.treatment || null,
+        quantityUsed: link.quantity_used,
+        unit: link.unit || byId.get(link.parent_entity_id)?.unit,
+        status: child?.status,
+        remarks: link.remarks,
+      }
+    })
+
   const grandparents = []
-  if (type === 'rope') {
-    parents.forEach((parent) => {
-      const gParentLinks = store.genealogy.filter((g) => g.child_entity_id === parent.entityId)
-      gParentLinks.forEach((gLink) => {
-        const gEntity = store.entities.find((e) => e.id === gLink.parent_entity_id)
-        if (gEntity && !grandparents.some((gp) => gp.entityId === gEntity.id)) {
+  if (entity.type === 'rope') {
+    for (const parent of parents) {
+      for (const link of links.filter((item) => item.child_entity_id === parent.entityId)) {
+        const grandparent = byId.get(link.parent_entity_id)
+        if (grandparent && !grandparents.some((item) => item.entityId === grandparent.id)) {
           grandparents.push({
-            entityId: gEntity.id,
-            batchId: gEntity.batch_id,
-            type: gEntity.type,
-            supplier: gEntity.supplier,
+            entityId: grandparent.id,
+            batchId: grandparent.batch_id,
+            type: grandparent.type,
+            supplier: grandparent.supplier,
             viaYarnBatch: parent.batchId,
           })
         }
-      })
-    })
+      }
+    }
   }
 
-  // Direct Children (Derived Batches)
-  const childLinks = store.genealogy.filter((g) => g.parent_entity_id === entityId)
-  const children = childLinks.map((link) => {
-    const childEntity = store.entities.find((e) => e.id === link.child_entity_id)
-    return {
-      linkId: link.id,
-      entityId: link.child_entity_id,
-      batchId: childEntity?.batch_id || 'Unknown',
-      type: childEntity?.type || 'unknown',
-      treatment: childEntity?.treatment || null,
-      quantityUsed: link.quantity_used,
-      unit: link.unit || childEntity?.unit,
-      status: childEntity?.status,
-      remarks: link.remarks,
-    }
-  })
-
-  // Grandchildren (Downstream Ropes for Flat Yarn)
   const grandchildren = []
-  if (type === 'flat_yarn') {
-    children.forEach((child) => {
-      const gcLinks = store.genealogy.filter((g) => g.parent_entity_id === child.entityId)
-      gcLinks.forEach((gcLink) => {
-        const gcEntity = store.entities.find((e) => e.id === gcLink.child_entity_id)
-        if (gcEntity && !grandchildren.some((gc) => gc.entityId === gcEntity.id)) {
+  if (entity.type === 'flat_yarn') {
+    for (const child of children) {
+      for (const link of links.filter((item) => item.parent_entity_id === child.entityId)) {
+        const grandchild = byId.get(link.child_entity_id)
+        if (grandchild && !grandchildren.some((item) => item.entityId === grandchild.id)) {
           grandchildren.push({
-            entityId: gcEntity.id,
-            batchId: gcEntity.batch_id,
-            type: gcEntity.type,
-            status: gcEntity.status,
+            entityId: grandchild.id,
+            batchId: grandchild.batch_id,
+            type: grandchild.type,
+            status: grandchild.status,
             viaYarnBatch: child.batchId,
           })
         }
-      })
-    })
-  }
-
-  return {
-    parents,
-    grandparents,
-    children,
-    grandchildren,
-  }
-}
-
-// ------------------------------------------------------------------------------
-// CREATION FUNCTIONS
-// ------------------------------------------------------------------------------
-
-export async function createFlatYarn({ batchId, supplier, quantity, unit = 'kg', notes }, user) {
-  const store = getLocalStore()
-  const cleanBatchId = String(batchId).trim()
-
-  if (store.entities.some((e) => e.batch_id.toLowerCase() === cleanBatchId.toLowerCase())) {
-    return { data: null, error: new Error(`Batch ID "${cleanBatchId}" already exists.`) }
-  }
-
-  const newId = `fy-${Date.now()}`
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const entity = {
-    id: newId,
-    type: 'flat_yarn',
-    batch_id: cleanBatchId,
-    supplier: supplier?.trim() || null,
-    treatment: null,
-    quantity: quantity ? Number(quantity) : null,
-    unit: unit || 'kg',
-    status: 'In Progress',
-    notes: notes?.trim() || '',
-    created_by_name: userName,
-    created_at: now,
-    updated_at: now,
-  }
-
-  store.entities.unshift(entity)
-
-  // Audit log
-  store.audit_logs.unshift({
-    id: `audit-${Date.now()}`,
-    entity_id: newId,
-    action: `Created Flat Yarn Batch ${cleanBatchId}`,
-    field_name: 'creation',
-    old_value: null,
-    new_value: `Supplier: ${supplier || 'None'}`,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  saveLocalStore(store)
-
-  // Attempt Supabase insert if available
-  if (supabaseStatus.available && supabase) {
-    try {
-      await supabase.from('entities').insert({
-        batch_id: entity.batch_id,
-        type: entity.type,
-        supplier: entity.supplier,
-        quantity: entity.quantity,
-        unit: entity.unit,
-        status: entity.status,
-        notes: entity.notes,
-        created_by: user?.id,
-      })
-    } catch (e) {
-      console.warn('Supabase remote insert failed:', e)
+      }
     }
   }
-
-  return { data: entity, error: null }
+  return { parents, grandparents, children, grandchildren }
 }
 
-export async function createYarnBatch({ batchId, parentEntityId, treatment, quantity, unit = 'kg', remarks, notes }, user) {
-  const store = getLocalStore()
-  const cleanBatchId = String(batchId).trim()
-
-  if (store.entities.some((e) => e.batch_id.toLowerCase() === cleanBatchId.toLowerCase())) {
-    return { data: null, error: new Error(`Batch ID "${cleanBatchId}" already exists.`) }
+function quantityBalance(entity, links) {
+  const outgoing = links.filter((link) => link.parent_entity_id === entity.id)
+  const hasUnknownAllocation = outgoing.some(
+    (link) => link.quantity_used == null
+      || !link.unit
+      || !Number.isFinite(Number(link.quantity_used))
+      || Number(link.quantity_used) <= 0
+  )
+  const consumed = hasUnknownAllocation
+    ? null
+    : outgoing.reduce((sum, link) => sum + Number(link.quantity_used), 0)
+  const unit = entity.unit || null
+  const unitsMatch = outgoing.every((link) => link.unit === unit)
+  const consumptionKnown = !hasUnknownAllocation && unitsMatch
+  const balanceKnown = entity.quantity != null && Boolean(unit) && consumptionKnown
+  return {
+    quantityConsumed: consumptionKnown ? consumed : null,
+    quantityRemaining: balanceKnown ? Number(entity.quantity) - consumed : null,
+    consumptionKnown: balanceKnown,
   }
-
-  const parentEntity = store.entities.find((e) => e.id === parentEntityId)
-  if (!parentEntity) {
-    return { data: null, error: new Error('Selected parent Flat Yarn Batch was not found.') }
-  }
-
-  const newId = `yb-${Date.now()}`
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const entity = {
-    id: newId,
-    type: 'yarn',
-    batch_id: cleanBatchId,
-    supplier: null,
-    treatment: treatment?.trim() || null,
-    quantity: quantity ? Number(quantity) : null,
-    unit: unit || 'kg',
-    status: 'In Progress',
-    notes: notes?.trim() || remarks?.trim() || '',
-    created_by_name: userName,
-    created_at: now,
-    updated_at: now,
-  }
-
-  store.entities.unshift(entity)
-
-  // Add genealogy link
-  const genealogyLink = {
-    id: `gen-${Date.now()}`,
-    parent_entity_id: parentEntity.id,
-    child_entity_id: newId,
-    quantity_used: quantity ? Number(quantity) : null,
-    unit: unit || 'kg',
-    remarks: remarks?.trim() || `Derived from ${parentEntity.batch_id}`,
-    created_at: now,
-  }
-  store.genealogy.push(genealogyLink)
-
-  // Audit log for yarn batch
-  store.audit_logs.unshift({
-    id: `audit-${Date.now()}`,
-    entity_id: newId,
-    action: `Created Yarn Batch ${cleanBatchId} from Flat Yarn ${parentEntity.batch_id}`,
-    field_name: 'genealogy',
-    old_value: null,
-    new_value: `Parent: ${parentEntity.batch_id} (${quantity ? `${quantity} ${unit}` : 'unspecified portion'})`,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  // Audit log on parent flat yarn batch
-  store.audit_logs.unshift({
-    id: `audit-fy-${Date.now()}`,
-    entity_id: parentEntity.id,
-    action: `Portion derived into Yarn Batch ${cleanBatchId}`,
-    field_name: 'downstream_usage',
-    old_value: null,
-    new_value: `Yarn Batch: ${cleanBatchId} (${quantity ? `${quantity} ${unit}` : 'unspecified'}) - Treatment: ${treatment || 'None'}`,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  saveLocalStore(store)
-
-  return { data: entity, error: null }
 }
 
-export async function createRopeBatch({ batchId, parentEntityIds, quantity, unit = 'meters', notes, remarks }, user) {
-  const store = getLocalStore()
-  const cleanBatchId = String(batchId).trim()
+async function entityBundle(entityId) {
+  const db = requireSupabase()
+  const [
+    entity,
+    parameters,
+    tests,
+    processes,
+    evidenceRows,
+    auditLogs,
+    genealogyLinks,
+  ] = await Promise.all([
+    queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle()),
+    queryData(db.from('entity_parameters').select('*').eq('entity_id', entityId).order('created_at')),
+    queryData(db.from('entity_tests').select('*').eq('entity_id', entityId).order('created_at')),
+    queryData(db.from('entity_processes').select('*').eq('entity_id', entityId).order('performed_at')),
+    queryData(db.from('entity_evidence').select('*').eq('entity_id', entityId).order('created_at', { ascending: false })),
+    queryData(db.from('entity_audit_logs').select('*').eq('entity_id', entityId).order('created_at', { ascending: false })),
+    queryData(db.from('entity_genealogy').select('*').or(`parent_entity_id.eq.${entityId},child_entity_id.eq.${entityId}`)),
+  ])
+  if (!entity) return null
 
-  if (store.entities.some((e) => e.batch_id.toLowerCase() === cleanBatchId.toLowerCase())) {
-    return { data: null, error: new Error(`Batch ID "${cleanBatchId}" already exists.`) }
+  const adjacentIds = [...new Set(genealogyLinks.flatMap((link) => [
+    link.parent_entity_id,
+    link.child_entity_id,
+  ]))]
+  const adjacentLinks = adjacentIds.length
+    ? await Promise.all([
+      queryData(db.from('entity_genealogy').select('*').in('parent_entity_id', adjacentIds)),
+      queryData(db.from('entity_genealogy').select('*').in('child_entity_id', adjacentIds)),
+    ])
+    : []
+  const allGenealogyLinks = [...new Map(
+    [...genealogyLinks, ...adjacentLinks.flat()].map((link) => [link.id, link])
+  ).values()]
+  const relatedIds = [...new Set(allGenealogyLinks.flatMap((link) => [
+    link.parent_entity_id,
+    link.child_entity_id,
+  ]))]
+  const relatedEntities = relatedIds.length
+    ? await queryData(db.from('entities').select('*').in('id', relatedIds))
+    : []
+  const balance = quantityBalance(entity, allGenealogyLinks)
+  const peopleIds = [
+    entity.created_by,
+    ...tests.map((item) => item.performed_by),
+    ...processes.map((item) => item.performed_by),
+    ...evidenceRows.map((item) => item.uploaded_by),
+    ...auditLogs.map((item) => item.performed_by),
+    ...relatedEntities.map((item) => item.created_by),
+  ]
+  const profiles = await fetchProfiles(peopleIds)
+  const evidence = await Promise.all(evidenceRows.map(async (item) => {
+    let storagePath = ''
+    if (item.storage_path) {
+      const { data, error } = await db.storage
+        .from(EVIDENCE_BUCKET)
+        .createSignedUrl(item.storage_path, 3600)
+      if (error) throw error
+      if (!data?.signedUrl) throw new Error(`Unable to create a download link for ${item.file_name}.`)
+      storagePath = data.signedUrl
+    }
+    return {
+      ...item,
+      uploaded_by_name: profiles.get(item.uploaded_by) || null,
+      storage_path: storagePath,
+    }
+  }))
+  return {
+    ...entity,
+    ...balance,
+    created_by_name: profiles.get(entity.created_by) || null,
+    parameters,
+    tests: tests.map((item) => ({
+      ...item,
+      performed_by_name: profiles.get(item.performed_by) || null,
+    })),
+    processes: processes.map((item) => ({
+      ...item,
+      performed_by_name: profiles.get(item.performed_by) || null,
+    })),
+    evidence,
+    auditLogs: auditLogs.map((item) => ({
+      ...withAuditDisplayFields(item),
+      performed_by_name: profiles.get(item.performed_by) || null,
+    })),
+    genealogy: mapGenealogy(entity, [entity, ...relatedEntities], allGenealogyLinks),
   }
-
-  if (!parentEntityIds || parentEntityIds.length === 0) {
-    return { data: null, error: new Error('At least one parent Yarn Batch must be selected.') }
-  }
-
-  const selectedParents = store.entities.filter((e) => parentEntityIds.includes(e.id))
-  if (selectedParents.length === 0) {
-    return { data: null, error: new Error('Selected parent Yarn Batches not found.') }
-  }
-
-  const newId = `rb-${Date.now()}`
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const entity = {
-    id: newId,
-    type: 'rope',
-    batch_id: cleanBatchId,
-    supplier: null,
-    treatment: null,
-    quantity: quantity ? Number(quantity) : null,
-    unit: unit || 'meters',
-    status: 'In Progress',
-    notes: notes?.trim() || remarks?.trim() || '',
-    created_by_name: userName,
-    created_at: now,
-    updated_at: now,
-  }
-
-  store.entities.unshift(entity)
-
-  // Add genealogy links for each selected yarn batch
-  selectedParents.forEach((parent, index) => {
-    store.genealogy.push({
-      id: `gen-${Date.now()}-${index}`,
-      parent_entity_id: parent.id,
-      child_entity_id: newId,
-      quantity_used: null,
-      unit: parent.unit || 'kg',
-      remarks: `Used in rope batch ${cleanBatchId}`,
-      created_at: now,
-    })
-
-    // Log on parent yarn
-    store.audit_logs.unshift({
-      id: `audit-yarn-${Date.now()}-${index}`,
-      entity_id: parent.id,
-      action: `Material used in Rope Batch ${cleanBatchId}`,
-      field_name: 'downstream_usage',
-      old_value: null,
-      new_value: `Rope Batch: ${cleanBatchId}`,
-      performed_by_name: userName,
-      created_at: now,
-    })
-  })
-
-  // Audit log on rope batch
-  const parentNames = selectedParents.map((p) => p.batch_id).join(', ')
-  store.audit_logs.unshift({
-    id: `audit-${Date.now()}`,
-    entity_id: newId,
-    action: `Created Rope Batch ${cleanBatchId}`,
-    field_name: 'genealogy',
-    old_value: null,
-    new_value: `Composed of Yarn Batches: ${parentNames}`,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  saveLocalStore(store)
-
-  return { data: entity, error: null }
 }
 
-// ------------------------------------------------------------------------------
-// EDIT & AUDIT FUNCTIONS
-// ------------------------------------------------------------------------------
-
-export async function updateEntityBasicInfo(entityId, updates, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
-
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const auditEvents = []
-
-  // Check supplier change
-  if ('supplier' in updates && updates.supplier !== entity.supplier) {
-    auditEvents.push({
-      action: `Supplier changed from "${entity.supplier || 'None'}" to "${updates.supplier || 'None'}"`,
-      field_name: 'supplier',
-      old_value: entity.supplier || '',
-      new_value: updates.supplier || '',
-    })
-    entity.supplier = updates.supplier
+async function withResult(callback) {
+  try {
+    return { data: await callback(), error: null }
+  } catch (error) {
+    return { data: null, error }
   }
+}
 
-  // Check treatment change
-  if ('treatment' in updates && updates.treatment !== entity.treatment) {
-    auditEvents.push({
-      action: `Treatment changed from "${entity.treatment || 'None'}" to "${updates.treatment || 'None'}"`,
-      field_name: 'treatment',
-      old_value: entity.treatment || '',
-      new_value: updates.treatment || '',
-    })
-    entity.treatment = updates.treatment
-  }
+export async function getCurrentUserProfile(userId) {
+  return withResult(async () => {
+    const profile = await queryData(
+      requireSupabase()
+        .from('profiles')
+        .select('id, display_name, role')
+        .eq('id', userId)
+        .maybeSingle()
+    )
+    if (!profile) throw new Error('Your user profile is not provisioned.')
+    return profile
+  })
+}
 
-  // Check quantity change
-  if ('quantity' in updates && Number(updates.quantity) !== Number(entity.quantity)) {
-    auditEvents.push({
-      action: `Quantity changed from ${entity.quantity || '0'} to ${updates.quantity || '0'} ${entity.unit || ''}`,
-      field_name: 'quantity',
-      old_value: String(entity.quantity || ''),
-      new_value: String(updates.quantity || ''),
-    })
-    entity.quantity = updates.quantity ? Number(updates.quantity) : null
-  }
+export async function checkSupabaseAvailable() {
+  const db = requireSupabase()
+  await queryData(db.from('entities').select('id').limit(1))
+  return true
+}
 
-  // Check unit change
-  if ('unit' in updates && updates.unit !== entity.unit) {
-    entity.unit = updates.unit
-  }
+export function getStorageMode() {
+  return 'supabase'
+}
 
-  // Check notes change
-  if ('notes' in updates && updates.notes !== entity.notes) {
-    auditEvents.push({
-      action: 'Updated notes / remarks',
-      field_name: 'notes',
-      old_value: entity.notes ? entity.notes.slice(0, 30) + '...' : '',
-      new_value: updates.notes ? updates.notes.slice(0, 30) + '...' : '',
-    })
-    entity.notes = updates.notes
-  }
+export async function listEntities(type = null) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    let query = db.from('entities').select('*').order('created_at', { ascending: false })
+    if (type) query = query.eq('type', type)
+    const entities = await queryData(query)
+    const links = entities.length
+      ? await queryData(
+        db.from('entity_genealogy')
+          .select('parent_entity_id, quantity_used, unit')
+          .in('parent_entity_id', entities.map((entity) => entity.id))
+      )
+      : []
+    return enrichEntities(entities.map((entity) => ({
+      ...entity,
+      ...quantityBalance(entity, links),
+    })))
+  })
+}
 
-  entity.updated_at = now
+export async function getEntity(idOrBatchId) {
+  return withResult(async () => {
+    const entity = await findEntity(idOrBatchId)
+    if (!entity) throw new Error('Entity not found')
+    const data = await entityBundle(entity.id)
+    if (!data) throw new Error('Entity not found')
+    return data
+  })
+}
 
-  // Append audit logs
-  auditEvents.forEach((ev, i) => {
-    store.audit_logs.unshift({
-      id: `audit-upd-${Date.now()}-${i}`,
+export async function createFlatYarn({ batchId, supplier, quantity, unit = 'kg', notes }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const entity = await queryData(db.from('entities').insert({
+      type: 'flat_yarn',
+      batch_id: String(batchId).trim(),
+      supplier: supplier?.trim() || null,
+      quantity: quantity == null || quantity === '' ? null : Number(quantity),
+      unit: unit || 'kg',
+      status: 'In Progress',
+      notes: notes?.trim() || '',
+    }).select().single())
+    try {
+      await writeAuditLog(
+        entity.id,
+        `Created Flat Yarn Batch ${entity.batch_id}`,
+        { field_name: 'creation', new_value: `Supplier: ${supplier || 'None'}` }
+      )
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return entity
+  })
+}
+
+export async function createYarnBatch({
+  batchId,
+  parentEntityId,
+  treatment,
+  inputQuantity,
+  inputUnit,
+  quantity,
+  unit = 'kg',
+  remarks,
+}) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    if (!inputQuantity || Number(inputQuantity) <= 0) {
+      throw new Error('Quantity consumed from the Flat Yarn parent is required.')
+    }
+    const entityId = await queryData(db.rpc('create_batch_with_consumption', {
+      p_entity: {
+        type: 'yarn',
+        batch_id: String(batchId).trim(),
+        treatment: treatment?.trim() || null,
+        quantity: quantity == null || quantity === '' ? null : Number(quantity),
+        unit: unit || 'kg',
+        status: 'In Progress',
+        notes: remarks?.trim() || '',
+      },
+      p_allocations: [{
+        parent_entity_id: parentEntityId,
+        quantity_used: Number(inputQuantity),
+        unit: inputUnit,
+        remarks: remarks?.trim() || null,
+      }],
+    }))
+    return { id: entityId, type: 'yarn', batch_id: String(batchId).trim() }
+  })
+}
+
+export async function createRopeBatch({ batchId, allocations, quantity, unit = 'meters', notes }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    if (!allocations?.length) throw new Error('At least one parent Yarn Batch must be selected.')
+    const entityId = await queryData(db.rpc('create_batch_with_consumption', {
+      p_entity: {
+        type: 'rope',
+        batch_id: String(batchId).trim(),
+        quantity: quantity == null || quantity === '' ? null : Number(quantity),
+        unit: unit || 'meters',
+        status: 'In Progress',
+        notes: notes?.trim() || '',
+      },
+      p_allocations: allocations.map((allocation) => ({
+        parent_entity_id: allocation.parentEntityId,
+        quantity_used: Number(allocation.quantity),
+        unit: allocation.unit,
+        remarks: allocation.remarks || null,
+      })),
+    }))
+    return { id: entityId, type: 'rope', batch_id: String(batchId).trim() }
+  })
+}
+
+export async function updateEntityBasicInfo(entityId, updates) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const current = await queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle())
+    if (!current) throw new Error('Entity not found')
+    const allowed = ['supplier', 'treatment', 'quantity', 'unit', 'notes']
+    const changes = Object.fromEntries(
+      allowed.filter((field) => field in updates).map((field) => [field, updates[field]])
+    )
+    const auditEvents = []
+    for (const field of allowed) {
+      if (!(field in changes) || changes[field] === current[field]) continue
+      const oldValue = current[field] == null ? '' : String(current[field])
+      const newValue = changes[field] == null ? '' : String(changes[field])
+      auditEvents.push({
+        entityId,
+        action: field === 'notes'
+          ? 'Updated notes / remarks'
+          : `${field[0].toUpperCase()}${field.slice(1)} changed from "${oldValue || 'None'}" to "${newValue || 'None'}"`,
+        fieldName: field,
+        oldValue,
+        newValue,
+      })
+    }
+    changes.updated_at = new Date().toISOString()
+    const updated = await queryData(
+      db.from('entities').update(changes).eq('id', entityId).select().single()
+    )
+    try {
+      await writeAuditLogs(auditEvents)
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return updated
+  })
+}
+
+export async function updateEntityStatus(entityId, newStatus) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const current = await queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle())
+    if (!current) throw new Error('Entity not found')
+    const updated = await queryData(db.from('entities').update({
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    }).eq('id', entityId).select().single())
+    if (current.status !== newStatus) {
+      await writeAuditLog(
+        entityId,
+        `Status changed from "${current.status || 'Not Set'}" to "${newStatus || 'Not Set'}"`,
+        {
+          field_name: 'status',
+          old_value: current.status || 'Not Set',
+          new_value: newStatus || 'Not Set',
+        }
+      )
+        .catch((error) => {
+          throw committedAuditError(error)
+        })
+    }
+    return updated
+  })
+}
+
+export async function addParameter(entityId, { name, value, unit, remarks }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const parameter = await queryData(db.from('entity_parameters').insert({
       entity_id: entityId,
-      action: ev.action,
-      field_name: ev.field_name,
-      old_value: ev.old_value,
-      new_value: ev.new_value,
-      performed_by_name: userName,
-      created_at: now,
+      name: String(name).trim(),
+      value: String(value).trim(),
+      unit: unit?.trim() || '',
+      remarks: remarks?.trim() || '',
+    }).select().single())
+    try {
+      await writeAuditLog(
+        entityId,
+        `Added parameter ${parameter.name}`,
+        {
+          field_name: 'parameter',
+          new_value: `${parameter.value} ${parameter.unit || ''}`.trim(),
+        }
+      )
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return parameter
+  })
+}
+
+export async function deleteParameter(entityId, paramId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const parameter = await queryData(
+      db.from('entity_parameters').select('*').eq('id', paramId).eq('entity_id', entityId).maybeSingle()
+    )
+    if (!parameter) throw new Error('Parameter not found')
+    await queryData(
+      db.from('entity_parameters')
+        .delete()
+        .eq('id', paramId)
+        .eq('entity_id', entityId)
+        .select('id')
+        .single()
+    )
+    await writeAuditLog(
+      entityId,
+      `Removed parameter ${parameter.name}`,
+      {
+        field_name: 'parameter',
+        old_value: `${parameter.value} ${parameter.unit || ''}`.trim(),
+      }
+    ).catch((error) => {
+      throw committedAuditError(error)
     })
+    return { id: paramId }
   })
-
-  saveLocalStore(store)
-  return getEntity(entityId)
 }
 
-export async function updateEntityStatus(entityId, newStatus, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
-
-  const oldStatus = entity.status || 'Not Set'
-  entity.status = newStatus
-  entity.updated_at = new Date().toISOString()
-
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  store.audit_logs.unshift({
-    id: `audit-status-${Date.now()}`,
-    entity_id: entityId,
-    action: `Status changed from "${oldStatus}" to "${newStatus || 'Not Set'}"`,
-    field_name: 'status',
-    old_value: oldStatus,
-    new_value: newStatus || 'Not Set',
-    performed_by_name: userName,
-    created_at: entity.updated_at,
+export async function addTest(entityId, { testName, value, unit, remarks, result = 'Pass' }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const test = await queryData(db.from('entity_tests').insert({
+      entity_id: entityId,
+      test_name: String(testName).trim(),
+      value: String(value).trim(),
+      unit: unit?.trim() || '',
+      result: result || 'Pass',
+      remarks: remarks?.trim() || '',
+    }).select().single())
+    try {
+      await writeAuditLog(
+        entityId,
+        `Recorded test: ${test.test_name}`,
+        {
+          field_name: 'test',
+          new_value: `${test.value} ${test.unit || ''} [${test.result}]`.trim(),
+        }
+      )
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return test
   })
-
-  saveLocalStore(store)
-  return getEntity(entityId)
 }
 
-// ------------------------------------------------------------------------------
-// PARAMETERS
-// ------------------------------------------------------------------------------
-
-export async function addParameter(entityId, { name, value, unit, remarks }, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
-
-  const cleanName = String(name).trim()
-  const cleanVal = String(value).trim()
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const param = {
-    id: `param-${Date.now()}`,
-    entity_id: entityId,
-    name: cleanName,
-    value: cleanVal,
-    unit: unit?.trim() || '',
-    remarks: remarks?.trim() || '',
-    created_at: now,
-  }
-
-  store.parameters.push(param)
-
-  store.audit_logs.unshift({
-    id: `audit-param-${Date.now()}`,
-    entity_id: entityId,
-    action: `Added parameter ${cleanName}`,
-    field_name: 'parameter',
-    old_value: null,
-    new_value: `${cleanVal} ${unit || ''}`.trim(),
-    performed_by_name: userName,
-    created_at: now,
+export async function deleteTest(entityId, testId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const test = await queryData(
+      db.from('entity_tests').select('*').eq('id', testId).eq('entity_id', entityId).maybeSingle()
+    )
+    if (!test) throw new Error('Test record not found')
+    await queryData(
+      db.from('entity_tests')
+        .delete()
+        .eq('id', testId)
+        .eq('entity_id', entityId)
+        .select('id')
+        .single()
+    )
+    await writeAuditLog(
+      entityId,
+      `Deleted test record ${test.test_name}`,
+      {
+        field_name: 'test',
+        old_value: `${test.value} ${test.unit || ''} (${test.result})`,
+      }
+    ).catch((error) => {
+      throw committedAuditError(error)
+    })
+    return { id: testId }
   })
-
-  entity.updated_at = now
-  saveLocalStore(store)
-  return getEntity(entityId)
 }
 
-export async function deleteParameter(entityId, paramId, user) {
-  const store = getLocalStore()
-  const param = store.parameters.find((p) => p.id === paramId && p.entity_id === entityId)
-  if (!param) return { data: null, error: new Error('Parameter not found') }
-
-  store.parameters = store.parameters.filter((p) => p.id !== paramId)
-
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  store.audit_logs.unshift({
-    id: `audit-del-param-${Date.now()}`,
-    entity_id: entityId,
-    action: `Removed parameter ${param.name}`,
-    field_name: 'parameter',
-    old_value: `${param.value} ${param.unit || ''}`.trim(),
-    new_value: null,
-    performed_by_name: userName,
-    created_at: now,
+export async function addProcess(entityId, { processName, specification, remarks }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const process = await queryData(db.from('entity_processes').insert({
+      entity_id: entityId,
+      process_name: String(processName).trim(),
+      specification: specification?.trim() || '',
+      remarks: remarks?.trim() || '',
+    }).select().single())
+    try {
+      await writeAuditLog(
+        entityId,
+        `Added process: ${process.process_name}`,
+        {
+          field_name: 'process',
+          new_value: process.specification || process.process_name,
+        }
+      )
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return process
   })
-
-  saveLocalStore(store)
-  return getEntity(entityId)
 }
 
-// ------------------------------------------------------------------------------
-// TESTS & QC
-// ------------------------------------------------------------------------------
+export async function addEvidence(entityId, { file, fileName, fileSize, mimeType, processId = null }) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    if (!file) throw new Error('Select a file to upload.')
+    const entity = await queryData(db.from('entities').select('id').eq('id', entityId).maybeSingle())
+    if (!entity) throw new Error('Entity not found')
+    const storagePath = `${entityId}/${crypto.randomUUID()}`
+    const storage = db.storage.from(EVIDENCE_BUCKET)
+    const { error: uploadError } = await storage.upload(storagePath, file, {
+      contentType: mimeType || file.type || 'application/octet-stream',
+      upsert: false,
+    })
+    if (uploadError) throw uploadError
+    let evidence
+    try {
+      evidence = await queryData(db.from('entity_evidence').insert({
+        entity_id: entityId,
+        process_id: processId,
+        file_name: fileName || file.name,
+        file_size: fileSize ?? file.size,
+        mime_type: mimeType || file.type || 'application/octet-stream',
+        storage_path: storagePath,
+      }).select().single())
+    } catch (error) {
+      const { error: cleanupError } = await storage.remove([storagePath])
+      if (cleanupError) {
+        throw new Error(`${error.message}; uploaded file cleanup also failed: ${cleanupError.message}`)
+      }
+      throw error
+    }
 
-export async function addTest(entityId, { testName, value, unit, remarks, result = 'Pass' }, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
+    try {
+      await writeAuditLog(
+        entityId,
+        `Uploaded evidence attachment: ${evidence.file_name}`,
+        { field_name: 'evidence', new_value: evidence.file_name }
+      )
+    } catch (error) {
+      throw committedAuditError(error)
+    }
 
-  const cleanName = String(testName).trim()
-  const cleanVal = String(value).trim()
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const test = {
-    id: `test-${Date.now()}`,
-    entity_id: entityId,
-    test_name: cleanName,
-    value: cleanVal,
-    unit: unit?.trim() || '',
-    result: result || 'Pass',
-    remarks: remarks?.trim() || '',
-    performed_by_name: userName,
-    tested_at: now,
-    created_at: now,
-  }
-
-  store.tests.push(test)
-
-  store.audit_logs.unshift({
-    id: `audit-test-${Date.now()}`,
-    entity_id: entityId,
-    action: `Recorded test: ${cleanName}`,
-    field_name: 'test',
-    old_value: null,
-    new_value: `${cleanVal} ${unit || ''} [${result}]`.trim(),
-    performed_by_name: userName,
-    created_at: now,
+    return evidence
   })
-
-  entity.updated_at = now
-  saveLocalStore(store)
-  return getEntity(entityId)
 }
-
-export async function deleteTest(entityId, testId, user) {
-  const store = getLocalStore()
-  const test = store.tests.find((t) => t.id === testId && t.entity_id === entityId)
-  if (!test) return { data: null, error: new Error('Test record not found') }
-
-  store.tests = store.tests.filter((t) => t.id !== testId)
-
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  store.audit_logs.unshift({
-    id: `audit-del-test-${Date.now()}`,
-    entity_id: entityId,
-    action: `Deleted test record ${test.test_name}`,
-    field_name: 'test',
-    old_value: `${test.value} ${test.unit || ''} (${test.result})`,
-    new_value: null,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  saveLocalStore(store)
-  return getEntity(entityId)
-}
-
-// ------------------------------------------------------------------------------
-// PROCESS / LIFECYCLE
-// ------------------------------------------------------------------------------
-
-export async function addProcess(entityId, { processName, specification, remarks }, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
-
-  const cleanName = String(processName).trim()
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const processRecord = {
-    id: `proc-${Date.now()}`,
-    entity_id: entityId,
-    process_name: cleanName,
-    specification: specification?.trim() || '',
-    remarks: remarks?.trim() || '',
-    performed_by_name: userName,
-    performed_at: now,
-    created_at: now,
-  }
-
-  store.processes.push(processRecord)
-
-  store.audit_logs.unshift({
-    id: `audit-proc-${Date.now()}`,
-    entity_id: entityId,
-    action: `Added process: ${cleanName}`,
-    field_name: 'process',
-    old_value: null,
-    new_value: specification || cleanName,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  entity.updated_at = now
-  saveLocalStore(store)
-  return getEntity(entityId)
-}
-
-// ------------------------------------------------------------------------------
-// EVIDENCE & ATTACHMENTS
-// ------------------------------------------------------------------------------
-
-export async function addEvidence(entityId, { fileName, fileSize, mimeType, fileDataUrl, processId = null }, user) {
-  const store = getLocalStore()
-  const entity = store.entities.find((e) => e.id === entityId)
-  if (!entity) return { data: null, error: new Error('Entity not found') }
-
-  const now = new Date().toISOString()
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-
-  const evidence = {
-    id: `ev-${Date.now()}`,
-    entity_id: entityId,
-    process_id: processId,
-    file_name: fileName,
-    file_size: fileSize || 1024,
-    mime_type: mimeType || 'application/octet-stream',
-    storage_path: fileDataUrl || `local/${entity.batch_id}/${fileName}`,
-    uploaded_by_name: userName,
-    created_at: now,
-  }
-
-  store.evidence.unshift(evidence)
-
-  store.audit_logs.unshift({
-    id: `audit-ev-${Date.now()}`,
-    entity_id: entityId,
-    action: `Uploaded evidence attachment: ${fileName}`,
-    field_name: 'evidence',
-    old_value: null,
-    new_value: fileName,
-    performed_by_name: userName,
-    created_at: now,
-  })
-
-  entity.updated_at = now
-  saveLocalStore(store)
-  return getEntity(entityId)
-}
-
-// ------------------------------------------------------------------------------
-// GLOBAL SEARCH & AUDIT
-// ------------------------------------------------------------------------------
 
 export async function searchTrace(query) {
   const q = String(query).trim().toLowerCase()
   if (!q) return []
-
-  const store = getLocalStore()
+  const db = requireSupabase()
+  const [entities, parameters] = await Promise.all([
+    queryData(db.from('entities').select('*').order('created_at', { ascending: false })),
+    queryData(db.from('entity_parameters').select('*')),
+  ])
+  const parameterEntities = new Set(
+    parameters
+      .filter((item) => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q))
+      .map((item) => item.entity_id)
+  )
   const results = []
-
-  for (const entity of store.entities) {
+  for (const entity of entities) {
     let matchType = null
     let matchDetail = ''
-
     if (entity.batch_id.toLowerCase().includes(q)) {
       matchType = 'Batch ID'
       matchDetail = `Matches Batch ID "${entity.batch_id}"`
-    } else if (entity.supplier && entity.supplier.toLowerCase().includes(q)) {
+    } else if (entity.supplier?.toLowerCase().includes(q)) {
       matchType = 'Supplier'
       matchDetail = `Supplier: ${entity.supplier}`
-    } else if (entity.treatment && entity.treatment.toLowerCase().includes(q)) {
+    } else if (entity.treatment?.toLowerCase().includes(q)) {
       matchType = 'Treatment'
       matchDetail = `Treatment: ${entity.treatment}`
-    } else if (entity.notes && entity.notes.toLowerCase().includes(q)) {
+    } else if (entity.notes?.toLowerCase().includes(q)) {
       matchType = 'Remarks'
       matchDetail = entity.notes
-    } else {
-      // Check parameters
-      const params = store.parameters.filter((p) => p.entity_id === entity.id)
-      const matchedParam = params.find(
-        (p) => p.name.toLowerCase().includes(q) || p.value.toLowerCase().includes(q)
+    } else if (parameterEntities.has(entity.id)) {
+      matchType = 'Parameter'
+      const parameter = parameters.find(
+        (item) => item.entity_id === entity.id &&
+          (item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q))
       )
-      if (matchedParam) {
-        matchType = 'Parameter'
-        matchDetail = `${matchedParam.name}: ${matchedParam.value} ${matchedParam.unit || ''}`
-      }
+      matchDetail = `${parameter.name}: ${parameter.value} ${parameter.unit || ''}`
     }
-
     if (matchType) {
-      const genealogy = resolveGenealogy(entity, store)
       results.push({
         entity,
         matchType,
         matchDetail,
-        genealogy,
+        genealogy: (await entityBundle(entity.id)).genealogy,
       })
     }
   }
-
   return results
 }
 
 export async function getGlobalAuditLogs(limit = 25) {
-  const store = getLocalStore()
-  const logs = [...store.audit_logs]
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, limit)
-    .map((log) => {
-      const entity = store.entities.find((e) => e.id === log.entity_id)
-      return {
-        ...log,
-        batch_id: entity?.batch_id || 'Unknown',
-        entity_type: entity?.type || 'unknown',
-      }
-    })
-  return logs
+  const db = requireSupabase()
+  const logs = await queryData(
+    db.from('entity_audit_logs').select('*').order('created_at', { ascending: false }).limit(limit)
+  )
+  const entityIds = [...new Set(logs.map((log) => log.entity_id))]
+  const entities = entityIds.length
+    ? await queryData(db.from('entities').select('id, batch_id, type').in('id', entityIds))
+    : []
+  const byEntity = new Map(entities.map((entity) => [entity.id, entity]))
+  const profiles = await fetchProfiles(logs.map((log) => log.performed_by))
+  return logs.map((log) => {
+    const entity = byEntity.get(log.entity_id)
+    return {
+      ...withAuditDisplayFields(log),
+      batch_id: entity?.batch_id || 'Unknown',
+      entity_type: entity?.type || 'unknown',
+      performed_by_name: profiles.get(log.performed_by) || null,
+    }
+  })
 }

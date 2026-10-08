@@ -23,23 +23,14 @@ export function UploadEvidenceModal({ entity, onClose, onUpload }) {
     setBusy(true)
     setError('')
     try {
-      // Read data URL if image, or create mock object URL
-      let fileDataUrl = null
-      if (selectedFile.type.startsWith('image/')) {
-        const reader = new FileReader()
-        fileDataUrl = await new Promise((resolve) => {
-          reader.onload = (ev) => resolve(ev.target.result)
-          reader.readAsDataURL(selectedFile)
-        })
-      }
-
-      await onUpload({
+      const result = await onUpload({
+        file: selectedFile,
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: selectedFile.type,
-        fileDataUrl: fileDataUrl || URL.createObjectURL(selectedFile),
         processId: processId || null,
       })
+      if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to upload attachment')

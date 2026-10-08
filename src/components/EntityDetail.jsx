@@ -27,6 +27,7 @@ import {
 
 export function EntityDetail({
   entity,
+  isAdmin = false,
   onBack,
   onNavigateEntity,
   onOpenEditModal,
@@ -107,7 +108,7 @@ export function EntityDetail({
 
           <div class="meta-grid">
             <div class="meta-item"><strong>Status:</strong> ${entity.status || 'In Progress'}</div>
-            <div class="meta-item"><strong>Quantity:</strong> ${entity.quantity ? `${entity.quantity} ${entity.unit || ''}` : 'Unspecified'}</div>
+            <div class="meta-item"><strong>Quantity:</strong> ${entity.quantity != null ? `${entity.quantity} ${entity.unit || ''}` : 'Unspecified'}</div>
             ${entity.supplier ? `<div class="meta-item"><strong>Supplier:</strong> ${entity.supplier}</div>` : ''}
             ${entity.treatment ? `<div class="meta-item"><strong>Treatment:</strong> ${entity.treatment}</div>` : ''}
             <div class="meta-item"><strong>Created:</strong> ${formatDate(entity.created_at)} by ${entity.created_by_name || 'Operator'}</div>
@@ -124,10 +125,10 @@ export function EntityDetail({
           <div class="section">
             <div class="section-title">Genealogy Lineage</div>
             ${entity.genealogy.parents.length ? `
-              <p><strong>Parents:</strong> ${entity.genealogy.parents.map(p => `${p.batchId} (${p.type})`).join(', ')}</p>
+              <p><strong>Parents:</strong> ${entity.genealogy.parents.map(p => `${p.batchId} (${p.type}; consumed ${p.quantityUsed != null ? `${p.quantityUsed} ${p.unit || ''}` : 'Unknown'})`).join(', ')}</p>
             ` : '<p>Original Raw Material (No parents)</p>'}
             ${entity.genealogy.children.length ? `
-              <p><strong>Derived Downstream Batches:</strong> ${entity.genealogy.children.map(c => `${c.batchId} (${c.type})`).join(', ')}</p>
+              <p><strong>Derived Downstream Batches:</strong> ${entity.genealogy.children.map(c => `${c.batchId} (${c.type}; consumed ${c.quantityUsed != null ? `${c.quantityUsed} ${c.unit || ''}` : 'Unknown'})`).join(', ')}</p>
             ` : ''}
           </div>
 
@@ -236,7 +237,7 @@ export function EntityDetail({
                 <Wrench size={14} /> Treatment: <strong>{entity.treatment}</strong>
               </span>
             )}
-            {entity.quantity && (
+            {entity.quantity != null && (
               <span className="meta-pill">
                 <Scale size={14} /> Quantity: <strong>{entity.quantity} {entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}</strong>
               </span>
@@ -286,7 +287,23 @@ export function EntityDetail({
                 <div className="attr-item">
                   <span className="attr-label">Recorded Quantity</span>
                   <span className="attr-value">
-                    {entity.quantity ? `${entity.quantity} ${entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}` : 'Unspecified portion'}
+                    {entity.quantity != null ? `${entity.quantity} ${entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}` : 'Unspecified'}
+                  </span>
+                </div>
+                <div className="attr-item">
+                  <span className="attr-label">Consumed by Downstream Batches</span>
+                  <span className="attr-value">
+                    {entity.quantityConsumed != null
+                      ? `${entity.quantityConsumed} ${entity.unit || ''}`.trim()
+                      : 'Unknown'}
+                  </span>
+                </div>
+                <div className="attr-item">
+                  <span className="attr-label">Remaining</span>
+                  <span className="attr-value">
+                    {entity.consumptionKnown
+                      ? `${entity.quantityRemaining} ${entity.unit}`
+                      : 'Unknown'}
                   </span>
                 </div>
                 <div className="attr-item">
@@ -352,11 +369,11 @@ export function EntityDetail({
                           <strong className="node-batch-id">{p.batchId}</strong>
                           {p.supplier && <div className="node-meta">Supplier: {p.supplier}</div>}
                           {p.treatment && <div className="node-meta">{p.treatment}</div>}
-                          {p.quantityUsed && (
+                          {p.quantityUsed != null ? (
                             <div className="node-portion-tag">
-                              Portion: {p.quantityUsed} {p.unit || 'kg'}
+                              Input consumed: {p.quantityUsed} {p.unit || 'Unknown'}
                             </div>
-                          )}
+                          ) : <div className="node-portion-tag">Input consumed: Unknown</div>}
                         </div>
                       ))}
                     </div>
@@ -383,7 +400,7 @@ export function EntityDetail({
                     <div className="focus-details">
                       {entity.supplier && <span>Supplier: {entity.supplier}</span>}
                       {entity.treatment && <span>Treatment: {entity.treatment}</span>}
-                      {entity.quantity && <span>{entity.quantity} {entity.unit}</span>}
+                      {entity.quantity != null && <span>{entity.quantity} {entity.unit}</span>}
                     </div>
                   </div>
                   <div className="focus-flow-arrow">↓</div>
@@ -413,11 +430,11 @@ export function EntityDetail({
                           </div>
                           <strong className="node-batch-id">{c.batchId}</strong>
                           {c.treatment && <div className="node-meta">{c.treatment}</div>}
-                          {c.quantityUsed && (
+                          {c.quantityUsed != null ? (
                             <div className="node-portion-tag">
-                              Used: {c.quantityUsed} {c.unit || 'kg'}
+                              Consumed: {c.quantityUsed} {c.unit || 'Unknown'}
                             </div>
-                          )}
+                          ) : <div className="node-portion-tag">Consumed: Unknown</div>}
                         </div>
                       ))}
                     </div>
@@ -584,13 +601,15 @@ export function EntityDetail({
                             <td>{p.unit || '—'}</td>
                             <td className="param-notes-cell">{p.remarks || '—'}</td>
                             <td className="action-cell">
-                              <button
-                                className="icon-button danger"
-                                title="Remove parameter"
-                                onClick={() => onDeleteParam(p.id, p.name)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  className="icon-button danger"
+                                  title="Remove parameter"
+                                  onClick={() => onDeleteParam(p.id, p.name)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -632,13 +651,15 @@ export function EntityDetail({
                               {t.result || 'Pass'}
                             </span>
                           </div>
-                          <button
-                            className="icon-button danger"
-                            title="Delete test record"
-                            onClick={() => onDeleteTest(t.id, t.test_name)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              className="icon-button danger"
+                              title="Delete test record"
+                              onClick={() => onDeleteTest(t.id, t.test_name)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                         <div className="test-value-row">
                           <span className="test-value-large">{t.value} {t.unit}</span>

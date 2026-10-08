@@ -5,7 +5,6 @@ import {
   Cpu,
   Anchor,
   Database,
-  RefreshCw,
   LogOut,
   X,
   ShieldCheck,
@@ -20,12 +19,13 @@ export function Sidebar({
   onClose,
   onLogout,
   user,
+  profile,
+  isAdmin,
   storageMode,
   onOpenSqlModal,
-  onResetSeed,
 }) {
-  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Operator'
-  const role = user?.user_metadata?.role || (user?.email?.includes('admin') ? 'admin' : 'operator')
+  const displayName = profile?.display_name || 'Namah User'
+  const displayRole = profile?.role === 'admin' ? 'admin' : 'operator'
   const initials = displayName
     .split(/\s+/)
     .map((p) => p[0])
@@ -67,8 +67,8 @@ export function Sidebar({
           <small>MANUFACTURING</small>
           <strong>Namah Operations</strong>
         </div>
-        <span className={`storage-pill ${storageMode}`}>
-          {storageMode === 'supabase' ? 'Cloud' : 'Local'}
+        <span className={`storage-pill ${storageMode === 'supabase' ? 'supabase' : 'unavailable'}`}>
+          {storageMode === 'supabase' ? 'Cloud' : 'Unavailable'}
         </span>
       </div>
 
@@ -93,24 +93,17 @@ export function Sidebar({
           )
         })}
 
-        <p className="nav-group-label" style={{ marginTop: '28px' }}>
-          SYSTEM TOOLS
-        </p>
-        <button className="nav-item-btn subtle" onClick={onOpenSqlModal}>
-          <Database size={15} className="nav-icon" />
-          <span className="nav-label-text">Supabase Schema SQL</span>
-        </button>
-        <button
-          className="nav-item-btn subtle"
-          onClick={() => {
-            if (window.confirm('Reset local workspace to default V1 seed scenario (523, 523 TA, 523 PB, 5417)?')) {
-              onResetSeed()
-            }
-          }}
-        >
-          <RefreshCw size={15} className="nav-icon" />
-          <span className="nav-label-text">Reset Demo Scenario</span>
-        </button>
+        {isAdmin && (
+          <>
+            <p className="nav-group-label" style={{ marginTop: '28px' }}>
+              SYSTEM TOOLS
+            </p>
+            <button className="nav-item-btn subtle" onClick={onOpenSqlModal}>
+              <Database size={15} className="nav-icon" />
+              <span className="nav-label-text">Quantity Tracking SQL</span>
+            </button>
+          </>
+        )}
       </nav>
 
       {/* User & Sign Out Footer */}
@@ -120,8 +113,8 @@ export function Sidebar({
           <div className="user-profile-meta">
             <div className="user-name-row">
               <strong>{displayName}</strong>
-              <span className={`role-badge ${role}`}>
-                {role === 'admin' ? 'Admin' : 'Operator'}
+              <span className={`role-badge ${displayRole}`}>
+                {displayRole === 'admin' ? 'Admin' : 'Operator'}
               </span>
             </div>
             <small>{user?.email || 'operator@namah.internal'}</small>
