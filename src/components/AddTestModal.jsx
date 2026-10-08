@@ -35,14 +35,14 @@ export function AddTestModal({ onClose, onSave }) {
     setBusy(true)
     setError('')
     try {
-      const result = await onSave({
+      const savedTest = await onSave({
         testName: testName.trim(),
         value: value.trim(),
         unit: unit.trim(),
         result,
         remarks: remarks.trim(),
       })
-      if (result?.error) throw result.error
+      if (savedTest?.error) throw savedTest.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save test record')

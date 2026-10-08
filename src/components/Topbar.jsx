@@ -7,7 +7,6 @@ import {
   Cpu,
   Anchor,
   ArrowRight,
-  Database,
   Cloud,
   HardDrive,
 } from 'lucide-react'
@@ -96,8 +95,8 @@ export function Topbar({
 
   const getTypeLabel = (type) => {
     if (type === 'flat_yarn') return 'Flat Yarn'
-    if (type === 'yarn') return 'Yarn Batch'
-    return 'Rope Batch'
+    if (type === 'yarn') return 'Yarn'
+    return 'Rope'
   }
 
   return (
@@ -195,6 +194,9 @@ export function Topbar({
           <button
             className="primary-button topbar-create-btn"
             onClick={() => setCreateMenuOpen(!createMenuOpen)}
+            aria-label="Create batch"
+            aria-haspopup="true"
+            aria-expanded={createMenuOpen}
           >
             <Plus size={16} />
             <span>Create</span>
@@ -213,8 +215,8 @@ export function Topbar({
                   <Layers size={16} />
                 </div>
                 <div>
-                  <strong>Flat Yarn Batch</strong>
-                  <small>Incoming raw material (e.g. 523)</small>
+                  <strong>Flat Yarn</strong>
+                  <small>Record incoming material</small>
                 </div>
               </button>
               <button
@@ -228,8 +230,8 @@ export function Topbar({
                   <Cpu size={16} />
                 </div>
                 <div>
-                  <strong>Yarn Batch</strong>
-                  <small>Derived from one Flat Yarn (e.g. 523 TA)</small>
+                  <strong>Yarn</strong>
+                  <small>Allocate one Flat Yarn input</small>
                 </div>
               </button>
               <button
@@ -243,8 +245,8 @@ export function Topbar({
                   <Anchor size={16} />
                 </div>
                 <div>
-                  <strong>Rope Batch</strong>
-                  <small>Assembled from Yarn Batches (e.g. 5417)</small>
+                  <strong>Rope</strong>
+                  <small>Allocate Yarn inputs</small>
                 </div>
               </button>
             </div>

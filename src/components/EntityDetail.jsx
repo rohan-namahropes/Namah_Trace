@@ -1,35 +1,69 @@
-import React, { useState } from 'react'
+import React from 'react'
 import {
   ArrowLeft,
-  Layers,
-  Cpu,
   Anchor,
-  Edit2,
-  Plus,
-  Trash2,
-  Download,
-  Calendar,
-  User,
-  Scale,
-  Building2,
-  Wrench,
   CheckCircle2,
-  Clock,
+  Cpu,
+  Download,
+  ExternalLink,
   FileText,
-  Paperclip,
+  FlaskConical,
   GitBranch,
   History,
-  FlaskConical,
-  ChevronRight,
-  ExternalLink,
-  Info,
+  Layers,
+  Paperclip,
+  Pencil,
+  Wrench,
 } from 'lucide-react'
+
+const typeLabels = {
+  flat_yarn: 'Flat Yarn',
+  yarn: 'Yarn',
+  rope: 'Rope',
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character])
+}
+
+function formatDate(value) {
+  if (!value) return '—'
+  return new Date(value).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatDateTime(value) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function typeIcon(type, size = 15) {
+  if (type === 'flat_yarn') return <Layers size={size} />
+  if (type === 'yarn') return <Cpu size={size} />
+  return <Anchor size={size} />
+}
 
 export function EntityDetail({
   entity,
   isAdmin = false,
   onBack,
   onNavigateEntity,
+  onViewHistory,
   onOpenEditModal,
   onOpenAddParamModal,
   onOpenAddTestModal,
@@ -39,754 +73,342 @@ export function EntityDetail({
   onDeleteTest,
   onUpdateStatus,
 }) {
-
   if (!entity) return null
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '-'
-    const d = new Date(dateStr)
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const genealogy = entity.genealogy || {
+    parents: [],
+    grandparents: [],
+    children: [],
+    grandchildren: [],
   }
+  const parameters = entity.parameters || []
+  const tests = entity.tests || []
+  const processes = entity.processes || []
+  const evidence = entity.evidence || []
+  const auditLogs = entity.auditLogs || []
 
-  const formatDateTime = (dateStr) => {
-    if (!dateStr) return '-'
-    const d = new Date(dateStr)
-    return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
-  }
+  const entries = [
+    ...processes.map((item) => ({
+      id: `process-${item.id}`,
+      type: 'Process',
+      className: 'process',
+      icon: <Wrench size={15} />,
+      title: item.process_name,
+      timestamp: item.performed_at || item.created_at,
+      detail: item.specification,
+      remarks: item.remarks,
+      actor: item.performed_by_name,
+    })),
+    ...parameters.map((item) => ({
+      id: `parameter-${item.id}`,
+      recordId: item.id,
+      type: 'Parameter',
+      className: 'parameter',
+      icon: <FlaskConical size={15} />,
+      title: item.name,
+      timestamp: item.created_at,
+      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
+      remarks: item.remarks,
+    })),
+    ...tests.map((item) => ({
+      id: `test-${item.id}`,
+      recordId: item.id,
+      type: 'Test',
+      className: 'test',
+      icon: <CheckCircle2 size={15} />,
+      title: item.test_name,
+      timestamp: item.tested_at || item.created_at,
+      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}`,
+      remarks: item.remarks,
+      actor: item.performed_by_name,
+    })),
+    ...evidence.map((item) => ({
+      id: `evidence-${item.id}`,
+      type: 'Evidence',
+      className: 'evidence',
+      icon: <Paperclip size={15} />,
+      title: item.file_name,
+      timestamp: item.created_at,
+      detail: item.storage_path,
+      actor: item.uploaded_by_name,
+    })),
+    ...(entity.notes ? [{
+      id: `remarks-${entity.id}`,
+      type: 'Remarks',
+      className: 'remarks',
+      icon: <FileText size={15} />,
+      title: 'Batch remarks',
+      timestamp: entity.created_at,
+      remarks: entity.notes,
+    }] : []),
+  ].sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0))
 
-  const getTypeIcon = (type = entity.type) => {
-    if (type === 'flat_yarn') return <Layers size={18} className="text-amber" />
-    if (type === 'yarn') return <Cpu size={18} className="text-blue" />
-    return <Anchor size={18} className="text-navy" />
-  }
-
-  const getTypeLabel = (type = entity.type) => {
-    if (type === 'flat_yarn') return 'Flat Yarn Batch'
-    if (type === 'yarn') return 'Yarn Batch'
-    return 'Rope Batch'
-  }
-
-  // Print/Download summary report
   const handleDownloadReport = () => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Namah Trace Report - Batch ${entity.batch_id}</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: 0 auto; line-height: 1.5; }
-            .header { border-bottom: 2px solid #004282; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
-            .logo-text { font-size: 24px; font-weight: 700; color: #004282; }
-            .logo-sub { font-size: 11px; letter-spacing: 1px; color: #64748b; }
-            .title { font-size: 28px; margin: 10px 0 0; color: #0f172a; }
-            .badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; background: #e2e8f0; }
-            .section { margin-top: 30px; }
-            .section-title { font-size: 16px; font-weight: 700; color: #004282; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
-            th { background: #f1f5f9; }
-            .timeline-item { border-left: 2px solid #004282; padding-left: 14px; margin-bottom: 14px; }
-            .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px; }
-            .meta-item { background: #f8fafc; padding: 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div>
-              <div class="logo-text">NAMAH ROPES</div>
-              <div class="logo-sub">OFFICIAL TRACEABILITY DOSSIER · V1</div>
-              <h1 class="title">Batch ${entity.batch_id}</h1>
-            </div>
-            <div>
-              <span class="badge">${getTypeLabel()}</span>
-              <div style="margin-top:6px; font-size:12px; color:#64748b;">Generated: ${new Date().toLocaleDateString('en-GB')}</div>
-            </div>
-          </div>
+    const rows = entries.map((entry) => `
+      <tr>
+        <td>${escapeHtml(entry.type)}</td>
+        <td>${escapeHtml(entry.title)}</td>
+        <td>${escapeHtml(entry.detail || entry.remarks || '—')}</td>
+        <td>${escapeHtml(formatDateTime(entry.timestamp))}</td>
+      </tr>
+    `).join('')
+    const html = `<!doctype html>
+      <html><head><title>Namah Trace · ${escapeHtml(entity.batch_id)}</title>
+      <style>
+        body{font:14px Arial,sans-serif;color:#202a35;margin:36px}
+        h1{margin-bottom:4px}p,small{color:#586575}
+        dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        dt{font-size:11px;color:#586575;text-transform:uppercase}
+        dd{margin:2px 0 0;font-weight:600}
+        table{border-collapse:collapse;width:100%;margin-top:24px}
+        th,td{text-align:left;padding:8px;border-bottom:1px solid #d8dce0}
+      </style></head><body>
+      <small>NAMAH TRACE · V1.1</small><h1>${escapeHtml(entity.batch_id)}</h1>
+      <p>${escapeHtml(typeLabels[entity.type] || entity.type)} · Created ${escapeHtml(formatDate(entity.created_at))}</p>
+      <dl>
+        <div><dt>Status</dt><dd>${escapeHtml(entity.status || 'In Progress')}</dd></div>
+        <div><dt>Recorded output</dt><dd>${escapeHtml(entity.quantity == null ? 'Unspecified' : `${entity.quantity} ${entity.unit || ''}`)}</dd></div>
+        <div><dt>Consumed</dt><dd>${escapeHtml(entity.quantityConsumed == null ? 'Unknown' : `${entity.quantityConsumed} ${entity.unit || ''}`)}</dd></div>
+        <div><dt>Remaining</dt><dd>${escapeHtml(entity.consumptionKnown ? `${entity.quantityRemaining} ${entity.unit}` : 'Unknown')}</dd></div>
+        ${entity.supplier ? `<div><dt>Supplier</dt><dd>${escapeHtml(entity.supplier)}</dd></div>` : ''}
+        ${entity.treatment ? `<div><dt>Treatment</dt><dd>${escapeHtml(entity.treatment)}</dd></div>` : ''}
+      </dl>
+      <h2>Lifecycle</h2><table><thead><tr><th>Type</th><th>Record</th><th>Details</th><th>Date</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4">No lifecycle records</td></tr>'}</tbody></table>
+      </body></html>`
 
-          <div class="meta-grid">
-            <div class="meta-item"><strong>Status:</strong> ${entity.status || 'In Progress'}</div>
-            <div class="meta-item"><strong>Quantity:</strong> ${entity.quantity != null ? `${entity.quantity} ${entity.unit || ''}` : 'Unspecified'}</div>
-            ${entity.supplier ? `<div class="meta-item"><strong>Supplier:</strong> ${entity.supplier}</div>` : ''}
-            ${entity.treatment ? `<div class="meta-item"><strong>Treatment:</strong> ${entity.treatment}</div>` : ''}
-            <div class="meta-item"><strong>Created:</strong> ${formatDate(entity.created_at)} by ${entity.created_by_name || 'Operator'}</div>
-            <div class="meta-item"><strong>Updated:</strong> ${formatDate(entity.updated_at || entity.created_at)}</div>
-          </div>
-
-          ${entity.notes ? `
-            <div class="section">
-              <div class="section-title">Remarks & Observations</div>
-              <p style="font-size: 13px;">${entity.notes}</p>
-            </div>
-          ` : ''}
-
-          <div class="section">
-            <div class="section-title">Genealogy Lineage</div>
-            ${entity.genealogy.parents.length ? `
-              <p><strong>Parents:</strong> ${entity.genealogy.parents.map(p => `${p.batchId} (${p.type}; consumed ${p.quantityUsed != null ? `${p.quantityUsed} ${p.unit || ''}` : 'Unknown'})`).join(', ')}</p>
-            ` : '<p>Original Raw Material (No parents)</p>'}
-            ${entity.genealogy.children.length ? `
-              <p><strong>Derived Downstream Batches:</strong> ${entity.genealogy.children.map(c => `${c.batchId} (${c.type}; consumed ${c.quantityUsed != null ? `${c.quantityUsed} ${c.unit || ''}` : 'Unknown'})`).join(', ')}</p>
-            ` : ''}
-          </div>
-
-          ${entity.parameters.length ? `
-            <div class="section">
-              <div class="section-title">Parameters & Specifications</div>
-              <table>
-                <thead><tr><th>Parameter</th><th>Value</th><th>Unit</th><th>Remarks</th></tr></thead>
-                <tbody>
-                  ${entity.parameters.map(p => `<tr><td>${p.name}</td><td><strong>${p.value}</strong></td><td>${p.unit || '-'}</td><td>${p.remarks || '-'}</td></tr>`).join('')}
-                </tbody>
-              </table>
-            </div>
-          ` : ''}
-
-          ${entity.tests.length ? `
-            <div class="section">
-              <div class="section-title">QC Tests & Observations</div>
-              <table>
-                <thead><tr><th>Test</th><th>Measurement</th><th>Result</th><th>Performed By</th></tr></thead>
-                <tbody>
-                  ${entity.tests.map(t => `<tr><td>${t.test_name}</td><td>${t.value} ${t.unit || ''}</td><td><strong>${t.result}</strong></td><td>${t.performed_by_name || '-'}</td></tr>`).join('')}
-                </tbody>
-              </table>
-            </div>
-          ` : ''}
-
-          ${entity.processes.length ? `
-            <div class="section">
-              <div class="section-title">Manufacturing Lifecycle Processes</div>
-              ${entity.processes.map(pr => `
-                <div class="timeline-item">
-                  <strong>${pr.process_name}</strong> - ${pr.specification || 'Standard specification'}
-                  <div style="font-size:11px; color:#64748b; margin-top:2px;">
-                    Performed: ${formatDate(pr.performed_at || pr.created_at)} by ${pr.performed_by_name || 'Operator'}
-                  </div>
-                  ${pr.remarks ? `<div style="font-size:12px; margin-top:4px;">${pr.remarks}</div>` : ''}
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-
-          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #cbd5e1; font-size: 11px; color: #94a3b8; text-align: center;">
-            Namah Trace Internal Traceability System · Scale New Heights
-          </div>
-        </body>
-      </html>
-    `
-    printWindow.document.write(htmlContent)
+    printWindow.document.write(html)
     printWindow.document.close()
     printWindow.focus()
     setTimeout(() => printWindow.print(), 250)
   }
 
-  const { genealogy } = entity
+  const genealogyCount = genealogy.parents.length + genealogy.children.length
+  const quantityDisplay = entity.quantity == null
+    ? 'Unspecified'
+    : `${entity.quantity} ${entity.unit || ''}`.trim()
+  const formatQuantity = (value, unit) => (
+    value == null ? 'Unknown' : `${value} ${unit || ''}`.trim()
+  )
 
   return (
     <div className="page detail-page">
-      {/* Top Back Navigation Bar */}
       <div className="detail-top-nav">
         <button className="back-link-btn" onClick={onBack}>
-          <ArrowLeft size={16} /> Back to batches
+          <ArrowLeft size={16} /> Batches
         </button>
-
         <div className="detail-quick-actions">
           <button className="secondary-button" onClick={handleDownloadReport}>
-            <Download size={15} /> Export Dossier
+            <Download size={15} /> Export
           </button>
           <button className="secondary-button" onClick={onOpenEditModal}>
-            <Edit2 size={15} /> Edit Basic Info
+            <Pencil size={15} /> Edit
           </button>
         </div>
       </div>
 
-      {/* Main Entity Header Banner */}
-      <div className="detail-hero-banner">
-        <div className="detail-hero-left">
-          <div className="detail-type-row">
-            <span className={`detail-type-badge ${entity.type}`}>
-              {getTypeIcon()}
-              {getTypeLabel()}
-            </span>
+      <header className="detail-heading">
+        <div className={`detail-type-badge ${entity.type}`}>
+          {typeIcon(entity.type)}
+          {typeLabels[entity.type] || entity.type}
+        </div>
+        <h1>{entity.batch_id}</h1>
+        <div className="detail-status-quantity">
+          <select
+            className={`status-select-control ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}
+            value={entity.status || 'In Progress'}
+            onChange={(event) => onUpdateStatus(event.target.value)}
+            aria-label="Batch status"
+          >
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+          <span className="detail-output-quantity">{quantityDisplay} output</span>
+        </div>
+      </header>
 
-            <div className="status-dropdown-wrap">
-              <select
-                className={`status-select-control ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}
-                value={entity.status || 'In Progress'}
-                onChange={(e) => onUpdateStatus(e.target.value)}
-              >
-                <option value="In Progress">Status: In Progress</option>
-                <option value="Completed">Status: Completed</option>
-              </select>
-            </div>
-          </div>
-
-          <h1 className="detail-batch-title">{entity.batch_id}</h1>
-
-          <div className="detail-meta-pills">
-            {entity.supplier && (
-              <span className="meta-pill">
-                <Building2 size={14} /> Supplier: <strong>{entity.supplier}</strong>
-              </span>
-            )}
-            {entity.treatment && (
-              <span className="meta-pill">
-                <Wrench size={14} /> Treatment: <strong>{entity.treatment}</strong>
-              </span>
-            )}
-            {entity.quantity != null && (
-              <span className="meta-pill">
-                <Scale size={14} /> Quantity: <strong>{entity.quantity} {entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}</strong>
-              </span>
-            )}
-            <span className="meta-pill">
-              <Calendar size={14} /> Created: {formatDate(entity.created_at)}
-            </span>
+      <section className="detail-basic-section" aria-labelledby="basic-heading">
+        <div className="detail-section-heading">
+          <div>
+            <span className="eyebrow">BATCH RECORD</span>
+            <h2 id="basic-heading">Basic information</h2>
           </div>
         </div>
-      </div>
-
-      {/* CONTINUOUS LIFECYCLE PAGE — all sections rendered inline */}
-      <div className="detail-lifecycle-page">
-
-        {/* SECTION 1: Basic Information */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <FileText size={16} className="section-icon" />
-              <h2>Basic Information</h2>
-            </div>
-            <button className="link-button" onClick={onOpenEditModal}><Edit2 size={13} /> Edit</button>
-          </div>
-          <div className="panel-card">
-            <div className="panel-body">
-              <div className="info-attribute-grid">
-                <div className="attr-item">
-                  <span className="attr-label">Batch Identifier</span>
-                  <strong className="attr-value mono">{entity.batch_id}</strong>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Entity Classification</span>
-                  <span className="attr-value">{getTypeLabel()}</span>
-                </div>
-                {entity.supplier && (
-                  <div className="attr-item">
-                    <span className="attr-label">Raw Material Supplier</span>
-                    <strong className="attr-value">{entity.supplier}</strong>
-                  </div>
-                )}
-                {entity.treatment && (
-                  <div className="attr-item">
-                    <span className="attr-label">Treatment Specification</span>
-                    <strong className="attr-value">{entity.treatment}</strong>
-                  </div>
-                )}
-                <div className="attr-item">
-                  <span className="attr-label">Recorded Quantity</span>
-                  <span className="attr-value">
-                    {entity.quantity != null ? `${entity.quantity} ${entity.unit || (entity.type === 'rope' ? 'm' : 'kg')}` : 'Unspecified'}
-                  </span>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Consumed by Downstream Batches</span>
-                  <span className="attr-value">
-                    {entity.quantityConsumed != null
-                      ? `${entity.quantityConsumed} ${entity.unit || ''}`.trim()
-                      : 'Unknown'}
-                  </span>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Remaining</span>
-                  <span className="attr-value">
-                    {entity.consumptionKnown
-                      ? `${entity.quantityRemaining} ${entity.unit}`
-                      : 'Unknown'}
-                  </span>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Lifecycle Status</span>
-                  <span className={`status-pill ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}>
-                    <span className="status-dot"></span>
-                    {entity.status || 'Active'}
-                  </span>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Created By</span>
-                  <span className="attr-value">{entity.created_by_name || 'Production Operator'}</span>
-                </div>
-                <div className="attr-item">
-                  <span className="attr-label">Registered Timestamp</span>
-                  <span className="attr-value">{formatDateTime(entity.created_at)}</span>
-                </div>
+        <div className="detail-basic-grid">
+          {entity.supplier && <div><span>Supplier</span><strong>{entity.supplier}</strong></div>}
+          {entity.treatment && <div><span>Treatment</span><strong>{entity.treatment}</strong></div>}
+          <div><span>Created</span><strong>{formatDateTime(entity.created_at)}</strong></div>
+          <div><span>Recorded by</span><strong>{entity.created_by_name || '—'}</strong></div>
+          {entity.quantity != null && (
+            <>
+              <div>
+                <span>Consumed</span>
+                <strong>{entity.quantityConsumed == null ? 'Unknown' : `${entity.quantityConsumed} ${entity.unit || ''}`.trim()}</strong>
               </div>
-
-              {entity.notes && (
-                <div className="entity-notes-box">
-                  <span className="notes-box-title">Remarks & Observations</span>
-                  <p>{entity.notes}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 2: Genealogy & Material Lineage */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <GitBranch size={16} className="section-icon text-navy" />
-              <h2>Genealogy & Material Lineage</h2>
-            </div>
-          </div>
-          <div className="panel-card genealogy-panel">
-            <div className="panel-body">
-              <div className="genealogy-flow-container">
-                {/* UPSTREAM PARENTS */}
-                <div className="genealogy-section">
-                  <div className="genealogy-section-title">
-                    <span>UPSTREAM PARENT ENTITIES</span>
-                    <small>Source materials used to produce this batch</small>
-                  </div>
-
-                  {genealogy.parents.length > 0 ? (
-                    <div className="genealogy-cards-row">
-                      {genealogy.parents.map((p) => (
-                        <div
-                          key={p.entityId}
-                          className="genealogy-node-card clickable"
-                          onClick={() => onNavigateEntity(p.entityId)}
-                        >
-                          <div className="node-card-top">
-                            <span className={`type-badge-pill ${p.type}`}>
-                              {getTypeIcon(p.type)}
-                              {p.type === 'flat_yarn' ? 'Flat Yarn' : 'Yarn Batch'}
-                            </span>
-                            <ExternalLink size={14} className="node-link-icon" />
-                          </div>
-                          <strong className="node-batch-id">{p.batchId}</strong>
-                          {p.supplier && <div className="node-meta">Supplier: {p.supplier}</div>}
-                          {p.treatment && <div className="node-meta">{p.treatment}</div>}
-                          {p.quantityUsed != null ? (
-                            <div className="node-portion-tag">
-                              Input consumed: {p.quantityUsed} {p.unit || 'Unknown'}
-                            </div>
-                          ) : <div className="node-portion-tag">Input consumed: Unknown</div>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="genealogy-root-notice">
-                      <span className="root-dot"></span>
-                      <span>This is a primary source Flat Yarn batch (Origin Material).</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* CURRENT ENTITY FOCAL NODE */}
-                <div className="genealogy-focus-node">
-                  <div className="focus-flow-arrow">↓</div>
-                  <div className="focus-node-box">
-                    <div className="focus-badge-row">
-                      <span className={`type-badge-pill ${entity.type}`}>
-                        {getTypeIcon()}
-                        {getTypeLabel()}
-                      </span>
-                      <span className="focus-current-tag">CURRENT BATCH</span>
-                    </div>
-                    <h2 className="focus-title">{entity.batch_id}</h2>
-                    <div className="focus-details">
-                      {entity.supplier && <span>Supplier: {entity.supplier}</span>}
-                      {entity.treatment && <span>Treatment: {entity.treatment}</span>}
-                      {entity.quantity != null && <span>{entity.quantity} {entity.unit}</span>}
-                    </div>
-                  </div>
-                  <div className="focus-flow-arrow">↓</div>
-                </div>
-
-                {/* DOWNSTREAM DERIVATIVES */}
-                <div className="genealogy-section">
-                  <div className="genealogy-section-title">
-                    <span>DOWNSTREAM DERIVED ENTITIES</span>
-                    <small>Batches manufactured from this material</small>
-                  </div>
-
-                  {genealogy.children.length > 0 ? (
-                    <div className="genealogy-cards-row">
-                      {genealogy.children.map((c) => (
-                        <div
-                          key={c.entityId}
-                          className="genealogy-node-card clickable child"
-                          onClick={() => onNavigateEntity(c.entityId)}
-                        >
-                          <div className="node-card-top">
-                            <span className={`type-badge-pill ${c.type}`}>
-                              {getTypeIcon(c.type)}
-                              {c.type === 'yarn' ? 'Yarn Batch' : 'Rope Batch'}
-                            </span>
-                            <ExternalLink size={14} className="node-link-icon" />
-                          </div>
-                          <strong className="node-batch-id">{c.batchId}</strong>
-                          {c.treatment && <div className="node-meta">{c.treatment}</div>}
-                          {c.quantityUsed != null ? (
-                            <div className="node-portion-tag">
-                              Consumed: {c.quantityUsed} {c.unit || 'Unknown'}
-                            </div>
-                          ) : <div className="node-portion-tag">Consumed: Unknown</div>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="genealogy-empty-notice">
-                      No downstream batches derived from this entity yet.
-                    </div>
-                  )}
-
-                  {genealogy.grandchildren && genealogy.grandchildren.length > 0 && (
-                    <div className="grandchildren-row">
-                      <span className="grandchildren-label">Downstream Rope Batches:</span>
-                      <div className="grandchildren-tags">
-                        {genealogy.grandchildren.map((gc) => (
-                          <button
-                            key={gc.entityId}
-                            className="grandchild-pill-btn"
-                            onClick={() => onNavigateEntity(gc.entityId)}
-                          >
-                            <Anchor size={12} />
-                            <span>{gc.batchId}</span>
-                            <small>(via {gc.viaYarnBatch})</small>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {genealogy.grandparents && genealogy.grandparents.length > 0 && (
-                    <div className="grandchildren-row">
-                      <span className="grandchildren-label">Original Flat Yarn Sources:</span>
-                      <div className="grandchildren-tags">
-                        {genealogy.grandparents.map((gp) => (
-                          <button
-                            key={gp.entityId}
-                            className="grandchild-pill-btn"
-                            onClick={() => onNavigateEntity(gp.entityId)}
-                          >
-                            <Layers size={12} />
-                            <span>{gp.batchId}</span>
-                            {gp.supplier && <small>({gp.supplier})</small>}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div>
+                <span>Remaining</span>
+                <strong>{entity.consumptionKnown ? `${entity.quantityRemaining} ${entity.unit}` : 'Unknown'}</strong>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
+      </section>
 
-        {/* SECTION 3: Manufacturing Processes */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <Clock size={16} className="section-icon" />
-              <h2>Manufacturing Processes <span className="section-count">({entity.processes.length})</span></h2>
-            </div>
-            <button className="primary-button" onClick={onOpenAddProcessModal}>
-              <Plus size={15} /> Add Process
-            </button>
-          </div>
-          <div className="panel-card">
-            <div className="panel-body">
-              {entity.processes.length === 0 ? (
-                <div className="empty-section-state">
-                  <Clock size={28} className="empty-icon" />
-                  <h4>No process records logged yet</h4>
-                  <p>Capture real manufacturing operations as they occur.</p>
-                  <button className="secondary-button" onClick={onOpenAddProcessModal}>
-                    <Plus size={14} /> Add First Process
+      <details className="detail-genealogy">
+        <summary>
+          <span className="genealogy-summary-title"><GitBranch size={16} /> Genealogy</span>
+          <span className="genealogy-summary-meta">
+            {genealogyCount ? `${genealogy.parents.length} parent · ${genealogy.children.length} child` : 'No direct links'}
+          </span>
+        </summary>
+        <div className="genealogy-compact-content">
+          {genealogy.parents.length > 0 && (
+            <div className="genealogy-compact-group">
+              <span className="compact-group-label">Input from</span>
+              <div className="genealogy-link-list">
+                {genealogy.parents.map((parent) => (
+                  <button className="genealogy-link-row" key={parent.linkId} onClick={() => onNavigateEntity(parent.entityId)}>
+                    <span className="genealogy-link-entity">{typeIcon(parent.type, 14)} {parent.batchId}</span>
+                    <span className="genealogy-link-quantities">
+                      <span><small>Used here</small><strong>{formatQuantity(parent.quantityUsed, parent.unit)}</strong></span>
+                      <span><small>Parent left</small><strong>{parent.remainingKnown ? formatQuantity(parent.quantityRemaining, parent.quantityUnit) : 'Unknown'}</strong></span>
+                    </span>
+                    <ExternalLink size={13} />
                   </button>
-                </div>
-              ) : (
-                <div className="lifecycle-timeline">
-                  {entity.processes.map((proc, index) => (
-                    <div key={proc.id} className="lifecycle-item">
-                      <div className="lifecycle-marker">
-                        <span className="step-counter">{index + 1}</span>
-                      </div>
-                      <div className="lifecycle-content">
-                        <div className="lifecycle-header">
-                          <div>
-                            <strong className="process-name">{proc.process_name}</strong>
-                            <span className="process-date">
-                              {formatDateTime(proc.performed_at || proc.created_at)}
-                            </span>
-                          </div>
-                          <span className="process-performer">
-                            <User size={13} /> {proc.performed_by_name || 'Operator'}
-                          </span>
-                        </div>
-
-                        {proc.specification && (
-                          <div className="process-spec-box">
-                            <span className="spec-label">Specification / Parameters:</span>
-                            <strong className="spec-value">{proc.specification}</strong>
-                          </div>
-                        )}
-
-                        {proc.remarks && (
-                          <p className="process-remarks">{proc.remarks}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 4: Parameters & Tests (side-by-side) */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <FlaskConical size={16} className="section-icon" />
-              <h2>Parameters & Tests <span className="section-count">({entity.parameters.length + entity.tests.length})</span></h2>
-            </div>
-          </div>
-          <div className="qc-columns-grid">
-            {/* Parameters Card */}
-            <div className="panel-card">
-              <div className="panel-head">
-                <div>
-                  <h3>Parameters & Specifications</h3>
-                  <p className="panel-head-sub">Flexible values (e.g. BS, Elongation, Denier, TPM, S, BWS)</p>
-                </div>
-                <button className="secondary-button" onClick={onOpenAddParamModal}>
-                  <Plus size={14} /> Parameter
-                </button>
-              </div>
-
-              <div className="panel-body">
-                {entity.parameters.length === 0 ? (
-                  <div className="empty-section-state mini">
-                    <p>No parameters recorded yet.</p>
-                    <button className="link-button" onClick={onOpenAddParamModal}>
-                      + Add parameter
-                    </button>
-                  </div>
-                ) : (
-                  <div className="parameters-table-wrap">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Parameter</th>
-                          <th>Value</th>
-                          <th>Unit</th>
-                          <th>Remarks</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {entity.parameters.map((p) => (
-                          <tr key={p.id}>
-                            <td className="param-name-cell">
-                              <strong>{p.name}</strong>
-                            </td>
-                            <td className="param-val-cell">
-                              <span className="param-val-pill">{p.value}</span>
-                            </td>
-                            <td>{p.unit || '—'}</td>
-                            <td className="param-notes-cell">{p.remarks || '—'}</td>
-                            <td className="action-cell">
-                              {isAdmin && (
-                                <button
-                                  className="icon-button danger"
-                                  title="Remove parameter"
-                                  onClick={() => onDeleteParam(p.id, p.name)}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
-
-            {/* Tests & QC Card */}
-            <div className="panel-card">
-              <div className="panel-head">
-                <div>
-                  <h3>Tests & Observations</h3>
-                  <p className="panel-head-sub">QC breakdown tests, sample inspections, and physical testing</p>
-                </div>
-                <button className="secondary-button" onClick={onOpenAddTestModal}>
-                  <Plus size={14} /> Record Test
-                </button>
-              </div>
-
-              <div className="panel-body">
-                {entity.tests.length === 0 ? (
-                  <div className="empty-section-state mini">
-                    <p>No tests recorded yet.</p>
-                    <button className="link-button" onClick={onOpenAddTestModal}>
-                      + Record test
-                    </button>
-                  </div>
-                ) : (
-                  <div className="tests-list">
-                    {entity.tests.map((t) => (
-                      <div key={t.id} className="test-record-card">
-                        <div className="test-card-top">
-                          <div className="test-name-wrap">
-                            <strong>{t.test_name}</strong>
-                            <span className={`test-result-badge ${t.result?.toLowerCase()}`}>
-                              {t.result || 'Pass'}
-                            </span>
-                          </div>
-                          {isAdmin && (
-                            <button
-                              className="icon-button danger"
-                              title="Delete test record"
-                              onClick={() => onDeleteTest(t.id, t.test_name)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </div>
-                        <div className="test-value-row">
-                          <span className="test-value-large">{t.value} {t.unit}</span>
-                          <span className="test-performed-by">
-                            {formatDate(t.tested_at || t.created_at)} by {t.performed_by_name || 'QC Analyst'}
-                          </span>
-                        </div>
-                        {t.remarks && <p className="test-remarks">{t.remarks}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 5: Evidence & Documents */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <Paperclip size={16} className="section-icon" />
-              <h2>Evidence & Documents <span className="section-count">({entity.evidence.length})</span></h2>
-            </div>
-            <button className="primary-button" onClick={onOpenUploadEvidenceModal}>
-              <Plus size={15} /> Upload Evidence
-            </button>
-          </div>
-          <div className="panel-card">
-            <div className="panel-body">
-              {entity.evidence.length === 0 ? (
-                <div className="empty-section-state">
-                  <Paperclip size={28} className="empty-icon" />
-                  <h4>No evidence documents attached</h4>
-                  <p>Upload files or photos to document this batch's quality.</p>
-                  <button className="secondary-button" onClick={onOpenUploadEvidenceModal}>
-                    <Plus size={14} /> Upload First File
+          )}
+          {genealogy.children.length > 0 && (
+            <div className="genealogy-compact-group">
+              <span className="compact-group-label">Supplied to</span>
+              <div className="genealogy-link-list">
+                {genealogy.children.map((child) => (
+                  <button className="genealogy-link-row" key={child.linkId} onClick={() => onNavigateEntity(child.entityId)}>
+                    <span className="genealogy-link-entity">{typeIcon(child.type, 14)} {child.batchId}</span>
+                    <span className="genealogy-link-quantities">
+                      <span><small>Used by child</small><strong>{formatQuantity(child.quantityUsed, child.unit)}</strong></span>
+                      <span><small>Child left</small><strong>{child.remainingKnown ? formatQuantity(child.quantityRemaining, child.quantityUnit) : 'Unknown'}</strong></span>
+                    </span>
+                    <ExternalLink size={13} />
                   </button>
-                </div>
-              ) : (
-                <div className="evidence-grid">
-                  {entity.evidence.map((ev) => (
-                    <div key={ev.id} className="evidence-card">
-                      <div className="evidence-card-icon">
-                        {ev.mime_type?.includes('image') ? '🖼️' : '📄'}
-                      </div>
-                      <div className="evidence-card-info">
-                        <strong className="evidence-filename" title={ev.file_name}>
-                          {ev.file_name}
-                        </strong>
-                        <div className="evidence-meta">
-                          <span>{(ev.file_size / 1024).toFixed(0)} KB</span>
-                          <span>·</span>
-                          <span>{formatDate(ev.created_at)}</span>
-                        </div>
-                        <small className="evidence-uploader">
-                          Uploaded by {ev.uploaded_by_name || 'Operator'}
-                        </small>
-                      </div>
-                      <a
-                        href={ev.storage_path}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="secondary-button evidence-download-btn"
-                        download={ev.file_name}
-                      >
-                        <Download size={14} />
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
+                ))}
+              </div>
             </div>
+          )}
+          {genealogy.grandparents?.length > 0 && (
+            <div className="genealogy-related-links">
+              <span>Original Flat Yarn</span>
+              {genealogy.grandparents.map((ancestor) => (
+                <button key={ancestor.entityId} onClick={() => onNavigateEntity(ancestor.entityId)}>
+                  {ancestor.batchId}
+                </button>
+              ))}
+            </div>
+          )}
+          {genealogy.grandchildren?.length > 0 && (
+            <div className="genealogy-related-links">
+              <span>Downstream Rope</span>
+              {genealogy.grandchildren.map((descendant) => (
+                <button key={descendant.entityId} onClick={() => onNavigateEntity(descendant.entityId)}>
+                  {descendant.batchId}
+                </button>
+              ))}
+            </div>
+          )}
+          {genealogyCount === 0 && !genealogy.grandparents?.length && !genealogy.grandchildren?.length && (
+            <p className="detail-muted">No genealogy links recorded.</p>
+          )}
+        </div>
+      </details>
+
+      <section className="detail-lifecycle">
+        <div className="detail-section-heading lifecycle-heading">
+          <div>
+            <span className="eyebrow">BATCH RECORD</span>
+            <h2>Lifecycle <span>{entries.length}</span></h2>
+          </div>
+          <div className="lifecycle-actions">
+            <button className="secondary-button" onClick={onOpenAddProcessModal}>Process</button>
+            <button className="secondary-button" onClick={onOpenAddParamModal}>Parameter</button>
+            <button className="secondary-button" onClick={onOpenAddTestModal}>Test</button>
+            <button className="secondary-button" onClick={onOpenUploadEvidenceModal}>Evidence</button>
           </div>
         </div>
 
-        {/* SECTION 6: Audit History */}
-        <div className="lifecycle-section">
-          <div className="lifecycle-section-head">
-            <div className="lifecycle-section-title">
-              <History size={16} className="section-icon" />
-              <h2>Audit History <span className="section-count">({entity.auditLogs.length})</span></h2>
-            </div>
-          </div>
-          <div className="panel-card">
-            <div className="panel-body">
-              {entity.auditLogs.length === 0 ? (
-                <div className="empty-section-state mini">
-                  <p>No audit events recorded yet.</p>
+        {entries.length > 0 ? (
+          <div className="unified-timeline">
+            {entries.map((entry) => (
+              <article className={`timeline-entry ${entry.className}`} key={entry.id}>
+                <span className="timeline-entry-icon">{entry.icon}</span>
+                <div className="timeline-entry-main">
+                  <div className="timeline-entry-heading">
+                    <span className={`timeline-type ${entry.className}`}>{entry.type}</span>
+                    <time>{formatDateTime(entry.timestamp)}</time>
+                  </div>
+                  <h3>{entry.title}</h3>
+                  {entry.detail && entry.className !== 'evidence' && (
+                    <p className="timeline-entry-detail">{entry.detail}</p>
+                  )}
+                  {entry.className === 'evidence' && entry.detail && (
+                    <a className="timeline-evidence-link" href={entry.detail} target="_blank" rel="noreferrer" download={entry.title}>
+                      <Download size={13} /> Download evidence
+                    </a>
+                  )}
+                  {entry.remarks && <p className="timeline-entry-remarks">{entry.remarks}</p>}
+                  {entry.actor && <span className="timeline-entry-actor">{entry.actor}</span>}
+                  {isAdmin && entry.className === 'parameter' && (
+                    <button
+                      className="timeline-delete-action"
+                      onClick={() => onDeleteParam(entry.recordId, entry.title)}
+                    >
+                      Remove parameter
+                    </button>
+                  )}
+                  {isAdmin && entry.className === 'test' && (
+                    <button
+                      className="timeline-delete-action"
+                      onClick={() => onDeleteTest(entry.recordId, entry.title)}
+                    >
+                      Delete test
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="audit-timeline">
-                  {entity.auditLogs.map((log) => (
-                    <div key={log.id} className="audit-item">
-                      <div className="audit-marker"></div>
-                      <div className="audit-content">
-                        <div className="audit-header">
-                          <strong className="audit-action">{log.action}</strong>
-                          <span className="audit-time">{formatDateTime(log.created_at)}</span>
-                        </div>
-
-                        {log.new_value && (
-                          <div className="audit-diff-box">
-                            {log.old_value && (
-                              <div className="diff-old">
-                                <span>Previous:</span> <code>{log.old_value}</code>
-                              </div>
-                            )}
-                            <div className="diff-new">
-                              <span>{log.old_value ? 'Updated to:' : 'Value:'}</span> <code>{log.new_value}</code>
-                            </div>
-                          </div>
-                        )}
-
-                        <span className="audit-performer">
-                          Recorded by <strong>{log.performed_by_name || 'Operator'}</strong>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              </article>
+            ))}
           </div>
-        </div>
+        ) : (
+          <p className="detail-empty-state">No lifecycle records have been added.</p>
+        )}
+      </section>
 
-      </div>
+      <details className="detail-history">
+        <summary><History size={15} /> View History <span>{auditLogs.length}</span></summary>
+        {auditLogs.length > 0 ? (
+          <div className="history-list">
+            {auditLogs.map((log) => (
+              <article className="history-row" key={log.id}>
+                <div><strong>{log.action}</strong><time>{formatDateTime(log.created_at)}</time></div>
+                {log.new_value && (
+                  <p>{log.old_value ? `${log.old_value} → ` : ''}{log.new_value}</p>
+                )}
+                <small>{log.performed_by_name || '—'}</small>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="detail-empty-state">No history recorded.</p>
+        )}
+        {onViewHistory && (
+          <button className="text-action history-global-link" onClick={onViewHistory}>
+            Open all history
+          </button>
+        )}
+      </details>
+
     </div>
   )
 }

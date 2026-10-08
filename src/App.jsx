@@ -274,7 +274,7 @@ export function App() {
     return (
       <div className="login-page">
         <div className="login-panel">
-          <p className="eyebrow">NAMAH ROPES / OPERATIONS</p>
+          <p className="eyebrow">NAMAH TRACE · V1.1</p>
           <p className="login-copy">Initializing operational trace workspace...</p>
         </div>
       </div>
@@ -290,7 +290,7 @@ export function App() {
     return (
       <div className="login-page">
         <div className="login-panel">
-          <p className="eyebrow">NAMAH ROPES / OPERATIONS</p>
+          <p className="eyebrow">NAMAH TRACE · V1.1</p>
           <p className="login-copy">
             {dataError || 'Loading your production profile...'}
           </p>
@@ -306,7 +306,7 @@ export function App() {
 
   // Breadcrumbs calculation
   const getBreadcrumbs = () => {
-    const crumbs = [{ label: 'Traceability', onClick: () => handleNavigateView('dashboard') }]
+    const crumbs = [{ label: 'Dashboard', onClick: () => handleNavigateView('dashboard') }]
 
     if (selectedEntityData) {
       let viewLabel = 'Batches'
@@ -320,11 +320,10 @@ export function App() {
       })
       crumbs.push({ label: `Batch ${selectedEntityData.batch_id}` })
     } else {
-      if (activeView === 'dashboard') crumbs.push({ label: 'Overview' })
       if (activeView === 'flat_yarn') crumbs.push({ label: 'Flat Yarn Batches' })
       if (activeView === 'yarn') crumbs.push({ label: 'Yarn Batches' })
       if (activeView === 'rope') crumbs.push({ label: 'Rope Batches' })
-      if (activeView === 'audit') crumbs.push({ label: 'Audit Trail' })
+      if (activeView === 'audit') crumbs.push({ label: 'History' })
     }
 
     return crumbs
@@ -381,6 +380,7 @@ export function App() {
               isAdmin={userProfile?.role === 'admin'}
               onBack={handleBackFromDetail}
               onNavigateEntity={handleSelectEntity}
+              onViewHistory={() => handleNavigateView('audit')}
               onOpenEditModal={() => setEditBasicModalOpen(true)}
               onOpenAddParamModal={() => setAddParamModalOpen(true)}
               onOpenAddTestModal={() => setAddTestModalOpen(true)}
@@ -397,7 +397,6 @@ export function App() {
                   entities={entities}
                   auditLogs={auditLogs}
                   onSelectEntity={handleSelectEntity}
-                  onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier })}
                   onNavigateView={handleNavigateView}
                 />
               )}
@@ -407,7 +406,6 @@ export function App() {
                   type={activeView}
                   entities={entities}
                   onSelectEntity={handleSelectEntity}
-                  onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier })}
                 />
               )}
 

@@ -35,10 +35,10 @@ export function AuditTrailView({ auditLogs, onSelectEntity }) {
             <History size={22} className="text-navy" />
           </div>
           <div>
-            <p className="eyebrow">COMPLIANCE & TRACEABILITY</p>
-            <h1>Global Audit Trail</h1>
+            <p className="eyebrow">OPERATIONS</p>
+            <h1>History</h1>
             <p className="subheading">
-              Complete chronological audit stream of all manufacturing updates, parameter registrations, process operations, and status changes.
+              Recorded changes across manufacturing batches.
             </p>
           </div>
         </div>
@@ -49,7 +49,7 @@ export function AuditTrailView({ auditLogs, onSelectEntity }) {
           <Search size={16} className="search-icon" />
           <input
             type="text"
-            placeholder="Search audit trail by batch ID, action, user, or value..."
+            placeholder="Search by batch, action, user, or value..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

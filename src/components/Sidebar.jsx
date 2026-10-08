@@ -1,14 +1,11 @@
 import React from 'react'
 import {
-  LayoutDashboard,
   Layers,
   Cpu,
   Anchor,
   Database,
   LogOut,
   X,
-  ShieldCheck,
-  User,
 } from 'lucide-react'
 
 export function Sidebar({
@@ -34,10 +31,10 @@ export function Sidebar({
     .toUpperCase()
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'rope', label: 'Rope Batches', icon: Anchor, count: counts.rope },
-    { id: 'yarn', label: 'Yarn Batches', icon: Cpu, count: counts.yarn },
-    { id: 'flat_yarn', label: 'Flat Yarn Batches', icon: Layers, count: counts.flat_yarn },
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'rope', label: 'Rope', icon: Anchor, count: counts.rope },
+    { id: 'yarn', label: 'Yarn', icon: Cpu, count: counts.yarn },
+    { id: 'flat_yarn', label: 'Flat Yarn', icon: Layers, count: counts.flat_yarn },
   ]
 
   const handleNav = (id) => {
@@ -52,7 +49,8 @@ export function Sidebar({
         <div className="brand-logo-container">
           <img src="/namah-logo.webp" alt="Namah Logo" className="brand-logo-img" />
           <div className="brand-title-wrap">
-            <span className="brand-sub">TRACE V1</span>
+            <strong className="brand-name">Namah Trace</strong>
+            <span className="brand-sub">MANUFACTURING TRACEABILITY · V1.1</span>
           </div>
         </div>
         <button className="icon-button side-close" onClick={onClose} aria-label="Close navigation">
@@ -60,21 +58,18 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Workspace Indicator */}
       <div className="workspace-badge-box">
         <div className="workspace-status-dot"></div>
         <div className="workspace-info">
-          <small>MANUFACTURING</small>
-          <strong>Namah Operations</strong>
+          <strong>Internal operations</strong>
         </div>
         <span className={`storage-pill ${storageMode === 'supabase' ? 'supabase' : 'unavailable'}`}>
-          {storageMode === 'supabase' ? 'Cloud' : 'Unavailable'}
+          {storageMode === 'supabase' ? 'Live' : 'Unavailable'}
         </span>
       </div>
 
       {/* Primary Navigation */}
       <nav className="side-nav">
-        <p className="nav-group-label">TRACEABILITY MATRIX</p>
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id
@@ -84,7 +79,7 @@ export function Sidebar({
               className={`nav-item-btn ${isActive ? 'active' : ''}`}
               onClick={() => handleNav(item.id)}
             >
-              <Icon size={17} className="nav-icon" />
+              {Icon && <Icon size={17} className="nav-icon" />}
               <span className="nav-label-text">{item.label}</span>
               {typeof item.count === 'number' && (
                 <span className="nav-count-badge">{item.count}</span>
@@ -93,17 +88,6 @@ export function Sidebar({
           )
         })}
 
-        {isAdmin && (
-          <>
-            <p className="nav-group-label" style={{ marginTop: '28px' }}>
-              SYSTEM TOOLS
-            </p>
-            <button className="nav-item-btn subtle" onClick={onOpenSqlModal}>
-              <Database size={15} className="nav-icon" />
-              <span className="nav-label-text">Quantity Tracking SQL</span>
-            </button>
-          </>
-        )}
       </nav>
 
       {/* User & Sign Out Footer */}
@@ -120,6 +104,11 @@ export function Sidebar({
             <small>{user?.email || 'operator@namah.internal'}</small>
           </div>
         </div>
+        {isAdmin && (
+          <button className="sidebar-admin-tool" onClick={onOpenSqlModal}>
+            <Database size={14} /> Quantity tracking SQL
+          </button>
+        )}
         <button className="logout-action-btn" onClick={onLogout}>
           <LogOut size={15} /> Sign out
         </button>

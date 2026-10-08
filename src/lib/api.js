@@ -117,6 +117,7 @@ function mapGenealogy(entity, entities, links) {
     .filter((link) => link.child_entity_id === entity.id)
     .map((link) => {
       const parent = byId.get(link.parent_entity_id)
+      const balance = parent ? quantityBalance(parent, links) : null
       return {
         linkId: link.id,
         entityId: link.parent_entity_id,
@@ -126,6 +127,9 @@ function mapGenealogy(entity, entities, links) {
         treatment: parent?.treatment || null,
         quantityUsed: link.quantity_used,
         unit: link.unit || parent?.unit,
+        quantityRemaining: balance?.quantityRemaining ?? null,
+        remainingKnown: balance?.consumptionKnown ?? false,
+        quantityUnit: parent?.unit || null,
         remarks: link.remarks,
       }
     })
@@ -133,6 +137,7 @@ function mapGenealogy(entity, entities, links) {
     .filter((link) => link.parent_entity_id === entity.id)
     .map((link) => {
       const child = byId.get(link.child_entity_id)
+      const balance = child ? quantityBalance(child, links) : null
       return {
         linkId: link.id,
         entityId: link.child_entity_id,
@@ -141,6 +146,9 @@ function mapGenealogy(entity, entities, links) {
         treatment: child?.treatment || null,
         quantityUsed: link.quantity_used,
         unit: link.unit || byId.get(link.parent_entity_id)?.unit,
+        quantityRemaining: balance?.quantityRemaining ?? null,
+        remainingKnown: balance?.consumptionKnown ?? false,
+        quantityUnit: child?.unit || null,
         status: child?.status,
         remarks: link.remarks,
       }

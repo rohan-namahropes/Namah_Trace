@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ArrowUpRight, ShieldCheck, AlertCircle } from 'lucide-react'
+import { ArrowUpRight, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 export function Login({ onLogin, error, setError }) {
@@ -32,14 +32,12 @@ export function Login({ onLogin, error, setError }) {
       <div className="login-panel">
         <div className="login-brand-head">
           <img src="/namah-logo.webp" alt="Namah Logo" className="login-brand-img" />
-          <span className="login-trace-badge">TRACE V1</span>
+          <span className="login-trace-badge">V1.1</span>
         </div>
 
-        <p className="eyebrow">OPERATIONAL TPACEABIMITY SYSTEM</p>
+        <p className="eyebrow">MANUFACTURING TRACEABILITY</p>
         <h1 className="login-heading">Namah Trace</h1>
-        <p className="login-copy">
-          Internal manufacturing traceability. Flat Yarn to Yarn Batch to Rope Batch.
-        </p>
+        <p className="login-copy">Internal manufacturing system</p>
 
         {(error || !supabase) && (
           <div className="login-error-box">
@@ -55,7 +53,7 @@ export function Login({ onLogin, error, setError }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
-              placeholder="e.g. operator@namah.internal"
+              placeholder="name@company.com"
               required
             />
           </label>
@@ -70,14 +68,11 @@ export function Login({ onLogin, error, setError }) {
             />
           </label>
           <button className="primary-button full" disabled={busy || !supabase}>
-            {busy ? 'Verifying session...' : 'Sign in to Workspace'}{' '}
+            {busy ? 'Signing in...' : 'Sign in'}{' '}
             <ArrowUpRight size={17} />
           </button>
         </form>
 
-        <p className="login-foot">
-          <ShieldCheck size={14} /> Internal Namah Ropes Network
-        </p>
       </div>
     </div>
   )

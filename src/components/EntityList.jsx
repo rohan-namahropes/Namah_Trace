@@ -3,7 +3,6 @@ import {
   Layers,
   Cpu,
   Anchor,
-  Plus,
   Search,
   Filter,
   ArrowRight,
@@ -19,7 +18,6 @@ export function EntityList({
   type,
   entities,
   onSelectEntity,
-  onOpenCreateModal,
 }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL') // 'ALL', 'In Progress', 'Completed'
@@ -32,10 +30,10 @@ export function EntityList({
   }
 
   const getSubtitle = () => {
-    if (type === 'flat_yarn') return 'Incoming source raw material received from suppliers'
-    if (type === 'yarn') return 'Treated, twisted, and heat-set lots derived from flat yarn'
-    if (type === 'rope') return 'Finished braided kernmantle ropes assembled from yarn batches'
-    return 'Comprehensive operational ledger across all manufacturing tiers'
+    if (type === 'flat_yarn') return 'Incoming material'
+    if (type === 'yarn') return 'Processed material'
+    if (type === 'rope') return 'Finished product'
+    return 'Manufacturing batches'
   }
 
   const getTypeIcon = () => {
@@ -86,12 +84,6 @@ export function EntityList({
           </div>
         </div>
 
-        <button
-          className="primary-button create-button-header"
-          onClick={() => onOpenCreateModal(type || 'flat_yarn')}
-        >
-          <Plus size={16} /> + New {type === 'flat_yarn' ? 'Flat Yarn' : type === 'yarn' ? 'Yarn Batch' : 'Rope Batch'}
-        </button>
       </div>
 
       {/* Filter & Search Bar */}
@@ -140,7 +132,7 @@ export function EntityList({
           <span className="col-specifics">
             {type === 'flat_yarn' ? 'Supplier' : type === 'yarn' ? 'Treatment / Process' : 'Composition / Output'}
           </span>
-          <span className="col-quantity">Quantity</span>
+          <span className="col-quantity">Output / Remaining</span>
           <span className="col-status">Status</span>
           <span className="col-updated">Created / Updated</span>
           <span className="col-action"></span>
@@ -185,16 +177,25 @@ export function EntityList({
                 )}
               </div>
 
-              {/* Quantity */}
+              {/* Recorded output and currently available quantity */}
               <div className="cell-quantity">
-                {item.quantity ? (
+                <span className="list-quantity-line">
+                  <small>Output</small>
                   <span className="quantity-tag">
                     <Scale size={13} className="cell-icon" />
-                    {item.quantity} {item.unit || (item.type === 'rope' ? 'm' : 'kg')}
+                    {item.quantity != null
+                      ? `${item.quantity} ${item.unit || ''}`.trim()
+                      : 'Unknown'}
                   </span>
-                ) : (
-                  <span className="text-muted">—</span>
-                )}
+                </span>
+                <span className="list-quantity-line remaining">
+                  <small>Remaining</small>
+                  <strong>
+                    {item.consumptionKnown
+                      ? `${item.quantityRemaining} ${item.unit || ''}`.trim()
+                      : 'Unknown'}
+                  </strong>
+                </span>
               </div>
 
               {/* Status */}
