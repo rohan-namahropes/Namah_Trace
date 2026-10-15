@@ -10,6 +10,7 @@ import {
   Bell,
   Cloud,
   HardDrive,
+  X,
 } from 'lucide-react'
 import { searchTrace } from '../lib/api'
 
@@ -21,6 +22,7 @@ export function Topbar({
   storageMode,
   profile,
   notifications = [],
+  onDismissNotifications,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -106,6 +108,10 @@ export function Topbar({
     return 'Rope'
   }
 
+  const dismissAllNotifications = () => {
+    onDismissNotifications(notifications.map((entity) => entity.id))
+  }
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -153,30 +159,53 @@ export function Topbar({
             <section className="notification-dropdown" aria-label="Notifications" aria-live="polite">
               <header>
                 <strong>Notifications</strong>
-                <span>{notifications.length}</span>
+                <div className="notification-header-actions">
+                  <span>{notifications.length}</span>
+                  {notifications.length > 0 && (
+                    <button
+                      type="button"
+                      className="notification-clear-all"
+                      onClick={dismissAllNotifications}
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
               </header>
               {notifications.length ? (
                 <div className="notification-list">
                   {notifications.map((entity) => (
-                    <button
-                      key={entity.id}
-                      type="button"
-                      className="notification-item"
-                      onClick={() => {
-                        setNotificationsOpen(false)
-                        onSelectEntity(entity.id)
-                      }}
-                    >
-                      <span className="notification-item-marker" aria-hidden="true" />
-                      <span className="notification-item-copy">
-                        <strong>Critical stock · {entity.batch_id}</strong>
-                        <small>
-                          {entity.quantityRemaining} {entity.unit} remaining · threshold{' '}
-                          {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
-                        </small>
-                      </span>
-                      <ArrowRight size={14} />
-                    </button>
+                    <div key={entity.id} className="notification-item">
+                      <button
+                        type="button"
+                        className="notification-item-content"
+                        onClick={() => {
+                          setNotificationsOpen(false)
+                          onSelectEntity(entity.id)
+                        }}
+                      >
+                        <span className="notification-item-marker" aria-hidden="true" />
+                        <span className="notification-item-copy">
+                          <strong>Critical stock · {entity.batch_id}</strong>
+                          <small>
+                            {entity.quantityRemaining} {entity.unit} remaining · threshold{' '}
+                            {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
+                          </small>
+                        </span>
+                        <ArrowRight size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="notification-dismiss"
+                        aria-label={`Dismiss notification for ${entity.batch_id}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onDismissNotifications([entity.id])
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (

@@ -1,5 +1,5 @@
 import React from 'react'
-import { AlertTriangle, Anchor, ArrowRight, Cpu, History, Layers } from 'lucide-react'
+import { AlertTriangle, Anchor, ArrowRight, Cpu, History, Layers, X } from 'lucide-react'
 
 const batchTypes = [
   { type: 'rope', label: 'Rope batches', icon: Anchor },
@@ -22,6 +22,7 @@ export function Dashboard({
   lowStockEntities = [],
   auditLogs,
   onSelectEntity,
+  onDismissStockAlert,
   onNavigateView,
 }) {
   const recentActivity = [...auditLogs]
@@ -78,18 +79,28 @@ export function Dashboard({
           </header>
           <div className="dashboard-stock-alert-list">
             {lowStockEntities.map((entity) => (
-              <button
-                key={entity.id}
-                type="button"
-                onClick={() => onSelectEntity(entity.id)}
-              >
-                <strong>{entity.batch_id}</strong>
-                <span>
-                  {entity.quantityRemaining} {entity.unit} remaining · below threshold{' '}
-                  {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
-                </span>
-                <ArrowRight size={14} />
-              </button>
+              <div className="dashboard-stock-alert-item" key={entity.id}>
+                <button
+                  className="dashboard-stock-alert-content"
+                  type="button"
+                  onClick={() => onSelectEntity(entity.id)}
+                >
+                  <strong>{entity.batch_id}</strong>
+                  <span>
+                    {entity.quantityRemaining} {entity.unit} remaining · below threshold{' '}
+                    {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
+                  </span>
+                  <ArrowRight size={14} />
+                </button>
+                <button
+                  className="dashboard-stock-alert-dismiss"
+                  type="button"
+                  aria-label={`Dismiss stock alert for ${entity.batch_id}`}
+                  onClick={() => onDismissStockAlert([entity.id])}
+                >
+                  <X size={14} />
+                </button>
+              </div>
             ))}
           </div>
         </section>

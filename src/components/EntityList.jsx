@@ -198,7 +198,7 @@ export function EntityList({
                 </span>
                 {item.type === 'flat_yarn' && item.lowStock && (
                   <span className="warning-label critical-stock-badge">
-                    Below threshold: {item.quantityRemaining} {item.unit} / {item.critical_quantity_threshold} {item.critical_quantity_threshold_unit}
+                    Below threshold: {item.quantityRemaining} {item.unit}
                   </span>
                 )}
                 {item.type === 'flat_yarn' && item.thresholdUnitProblem && (

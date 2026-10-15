@@ -707,9 +707,24 @@ code, .mono {
   font-size: 12px;
 }
 
+.notification-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .notification-dropdown > header span {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.notification-clear-all {
+  border: 0;
+  background: transparent;
+  color: var(--brand-navy);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0;
 }
 
 .notification-list {
@@ -719,24 +734,49 @@ code, .mono {
 
 .notification-item {
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
+  align-items: stretch;
   width: 100%;
-  padding: 11px 13px;
-  color: var(--text-main);
-  border: 0;
   border-bottom: 1px solid var(--border-subtle);
   background: #fff7f6;
-  cursor: pointer;
-  text-align: left;
 }
 
 .notification-item:last-child {
   border-bottom: 0;
 }
 
-.notification-item:hover {
+.notification-item-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  flex: 1;
+  width: 100%;
+  padding: 11px 13px;
+  color: var(--text-main);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.notification-item-content:hover {
   background: #ffe9e6;
+}
+
+.notification-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: auto;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.notification-dismiss:hover {
+  background: #fef2f2;
+  color: #8f1414;
 }
 
 .notification-item-marker {
@@ -766,7 +806,7 @@ code, .mono {
   line-height: 1.4;
 }
 
-.notification-item > svg {
+.notification-item-content > svg {
   flex: 0 0 auto;
   margin-top: 3px;
   color: #a61b1b;
@@ -5359,34 +5399,61 @@ code, .mono {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
-.dashboard-stock-alert-list button {
+.dashboard-stock-alert-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid #f0c5c2;
+}
+
+.dashboard-stock-alert-item:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-stock-alert-content {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
   min-width: 0;
   padding: 12px 15px;
   text-align: left;
   color: inherit;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #f0c5c2;
   cursor: pointer;
 }
 
-.dashboard-stock-alert-list button:hover {
+.dashboard-stock-alert-content:hover {
   background: #ffe5e2;
 }
 
-.dashboard-stock-alert-list button strong {
+.dashboard-stock-alert-content strong {
   flex: 0 0 auto;
   color: #8f1414;
 }
 
-.dashboard-stock-alert-list button span {
+.dashboard-stock-alert-content span {
   flex: 1;
   min-width: 0;
   color: #793a37;
   font-size: 12px;
+}
+
+.dashboard-stock-alert-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 38px;
+  flex: 0 0 auto;
+  border-left: 1px solid #f0c5c2;
+  color: #793a37;
+}
+
+.dashboard-stock-alert-dismiss:hover {
+  color: #8f1414;
+  background: #ffe5e2;
 }
 
 .inline-evidence-field {

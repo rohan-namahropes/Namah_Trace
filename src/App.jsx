@@ -48,6 +48,8 @@ export function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [dataError, setDataError] = useState('')
+  const [stockAlertStorageError, setStockAlertStorageError] = useState('')
+  const [dismissedStockAlerts, setDismissedStockAlerts] = useState({ userId: null, ids: [] })
 
   // Modals state
   const [createModal, setCreateModal] = useState({ open: false, type: 'flat_yarn' })
@@ -134,6 +136,45 @@ export function App() {
     setSelectedEntityData(null)
     setDataError('')
   }, [session?.user?.id])
+
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) {
+      setDismissedStockAlerts({ userId: null, ids: [] })
+      return
+    }
+
+    try {
+      const savedIds = localStorage.getItem(`namah-trace:dismissed-stock-alerts:${userId}`)
+      const ids = savedIds ? JSON.parse(savedIds) : []
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+        throw new Error('Saved dismissed stock alerts have an invalid format.')
+      }
+      setDismissedStockAlerts({ userId, ids: [...new Set(ids)] })
+      setStockAlertStorageError('')
+    } catch (error) {
+      setDismissedStockAlerts({ userId, ids: [] })
+      setStockAlertStorageError(error.message || 'Unable to load dismissed stock alerts.')
+    }
+  }, [session?.user?.id])
+
+  const handleDismissStockAlerts = (entityIds) => {
+    const userId = session?.user?.id
+    if (!userId) {
+      setDataError('Sign in to dismiss stock alerts.')
+      return
+    }
+
+    const currentIds = dismissedStockAlerts.userId === userId ? dismissedStockAlerts.ids : []
+    const nextIds = [...new Set([...currentIds, ...entityIds])]
+    try {
+      localStorage.setItem(`namah-trace:dismissed-stock-alerts:${userId}`, JSON.stringify(nextIds))
+      setDismissedStockAlerts({ userId, ids: nextIds })
+      setStockAlertStorageError('')
+    } catch (error) {
+      setStockAlertStorageError(error.message || 'Unable to save dismissed stock alerts.')
+    }
+  }
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -389,6 +430,12 @@ export function App() {
 
   const availableFlatYarns = entities.filter((e) => e.type === 'flat_yarn')
   const availableYarns = entities.filter((e) => e.type === 'yarn')
+  const dismissedIds = new Set(
+    dismissedStockAlerts.userId === session.user.id ? dismissedStockAlerts.ids : [],
+  )
+  const visibleLowStockEntities = entities.filter(
+    (entity) => entity.lowStock && !dismissedIds.has(entity.id),
+  )
 
   return (
     <div className="app-shell">
@@ -416,7 +463,8 @@ export function App() {
           onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier || 'flat_yarn' })}
           storageMode={storageMode}
           profile={userProfile}
-          notifications={entities.filter((entity) => entity.lowStock)}
+          notifications={visibleLowStockEntities}
+          onDismissNotifications={handleDismissStockAlerts}
         />
 
         {/* Main Content Area */}
@@ -424,6 +472,11 @@ export function App() {
           {dataError && (
             <div className="login-error-box" role="alert">
               {dataError}
+            </div>
+          )}
+          {stockAlertStorageError && (
+            <div className="login-error-box" role="alert">
+              Unable to persist dismissed stock alerts: {stockAlertStorageError}
             </div>
           )}
           <Suspense fallback={<div className="page-loading-state">Loading workspace...</div>}>
@@ -456,7 +509,8 @@ export function App() {
               {activeView === 'dashboard' && (
                 <Dashboard
                   entities={entities}
-                  lowStockEntities={entities.filter((entity) => entity.lowStock)}
+                  lowStockEntities={visibleLowStockEntities}
+                  onDismissStockAlert={handleDismissStockAlerts}
                   auditLogs={auditLogs}
                   onSelectEntity={handleSelectEntity}
                   onNavigateView={handleNavigateView}
