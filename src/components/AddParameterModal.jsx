@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { X, AlertCircle } from 'lucide-react'
+import { EvidenceFileInput, getEvidenceFileError } from './EvidenceFileInput'
 
 const PARAM_PRESETS = [
   { name: 'BS', label: 'Breaking Strength (BS)', unit: 'kN' },
@@ -8,6 +9,7 @@ const PARAM_PRESETS = [
   { name: 'TPM', label: 'Twists Per Metre (TPM)', unit: 'TPM' },
   { name: 'Twist Direction', label: 'Twist Direction (S/Z)', unit: '' },
   { name: 'BWS', label: 'Boiling Water Shrinkage (BWS)', unit: '%' },
+  { name: 'HAS', label: 'Hot Air Shrinkage (HAS)', unit: '%' },
   { name: 'Diameter', label: 'Rope Diameter', unit: 'mm' },
   { name: 'Linear Mass', label: 'Linear Mass / Weight', unit: 'g/m' },
 ]
@@ -17,6 +19,7 @@ export function AddParameterModal({ onClose, onSave }) {
   const [value, setValue] = useState('')
   const [unit, setUnit] = useState('')
   const [remarks, setRemarks] = useState('')
+  const [evidenceFile, setEvidenceFile] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -39,16 +42,25 @@ export function AddParameterModal({ onClose, onSave }) {
     setBusy(true)
     setError('')
     try {
+      if (evidenceFile) {
+        const fileError = getEvidenceFileError(evidenceFile)
+        if (fileError) throw new Error(fileError)
+      }
       const result = await onSave({
         name: name.trim(),
         value: value.trim(),
         unit: unit.trim(),
         remarks: remarks.trim(),
+        evidenceFile,
       })
       if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save parameter')
+      if (err.recordSaved) {
+        onClose()
+        return
+      }
       setBusy(false)
     }
   }
@@ -116,6 +128,8 @@ export function AddParameterModal({ onClose, onSave }) {
               />
             </label>
           </div>
+
+          <EvidenceFileInput file={evidenceFile} onChange={setEvidenceFile} id="parameter-evidence-file" />
 
           <div className="form-grid-2">
             <label className="form-field">

@@ -10,10 +10,19 @@ import {
   Check,
 } from 'lucide-react'
 
+function normalizeYarnPattern(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[\\/]+/g, '-')
+    .replace(/[^A-Za-z0-9_-]/g, '')
+}
+
 export function CreateEntityModal({
   initialType = 'flat_yarn',
   availableFlatYarns = [],
   availableYarns = [],
+  isAdmin = false,
   onClose,
   onCreateFlatYarn,
   onCreateYarnBatch,
@@ -28,17 +37,23 @@ export function CreateEntityModal({
   const [supplier, setSupplier] = useState('')
   const [flatQuantity, setFlatQuantity] = useState('')
   const [flatUnit, setFlatUnit] = useState('kg')
+  const [flatCriticalThreshold, setFlatCriticalThreshold] = useState('')
   const [flatNotes, setFlatNotes] = useState('')
 
   // Yarn fields
-  const [yarnBatchId, setYarnBatchId] = useState('')
+  const [yarnBatchId, setYarnBatchId] = useState(() => {
+    const parent = availableFlatYarns.find((entity) => entity.consumptionKnown && entity.quantityRemaining > 0)
+    return parent ? `${parent.batch_id}-T1680` : ''
+  })
   const [selectedParentFlatYarnId, setSelectedParentFlatYarnId] = useState(
     availableFlatYarns.find((entity) => entity.consumptionKnown && entity.quantityRemaining > 0)?.id || ''
   )
-  const [treatment, setTreatment] = useState('')
+  const [yarnProcessType, setYarnProcessType] = useState('T')
+  const [yarnPatternValue, setYarnPatternValue] = useState('1680')
   const [yarnInputQuantity, setYarnInputQuantity] = useState('')
   const [yarnOutputQuantity, setYarnOutputQuantity] = useState('')
   const [yarnUnit, setYarnUnit] = useState('kg')
+  const [wastagePercentage, setWastagePercentage] = useState('3.5')
   const [yarnRemarks, setYarnRemarks] = useState('')
 
   // Rope fields
@@ -51,6 +66,22 @@ export function CreateEntityModal({
 
   const hasAvailableMaterial = (entity) =>
     entity?.consumptionKnown && entity.quantityRemaining > 0
+
+  const selectedFlatYarn = availableFlatYarns.find((entity) => entity.id === selectedParentFlatYarnId)
+  const estimatedYarnOutput = selectedFlatYarn
+    && selectedFlatYarn.unit === yarnUnit
+    && yarnInputQuantity
+    && Number.isFinite(Number(yarnInputQuantity))
+    && Number(yarnInputQuantity) > 0
+    && Number.isFinite(Number(wastagePercentage))
+    && Number(wastagePercentage) >= 0
+    && Number(wastagePercentage) <= 100
+    ? Number(yarnInputQuantity) * (100 - Number(wastagePercentage)) / 100
+    : null
+  const updateYarnBatchId = (parent = selectedFlatYarn, processType = yarnProcessType, patternValue = yarnPatternValue) => {
+    const suffix = normalizeYarnPattern(patternValue)
+    if (parent) setYarnBatchId(`${parent.batch_id}-${processType}${suffix}`)
+  }
 
   const handleToggleYarnSelection = (yarnId) => {
     const parent = availableYarns.find((item) => item.id === yarnId)
@@ -82,13 +113,24 @@ export function CreateEntityModal({
           supplier: supplier.trim(),
           quantity: flatQuantity ? Number(flatQuantity) : null,
           unit: flatUnit,
+          criticalQuantityThreshold: isAdmin && flatCriticalThreshold !== ''
+            ? Number(flatCriticalThreshold)
+            : null,
+          criticalQuantityThresholdUnit: flatUnit,
           notes: flatNotes.trim(),
         })
         if (res.error) throw res.error
       } else if (entityType === 'yarn') {
-        if (!yarnBatchId.trim()) throw new Error('Yarn Batch ID is required (e.g. 523 TA).')
+        if (!yarnBatchId.trim()) throw new Error('Yarn Batch ID is required (e.g. 123-T1680 or 123-Pvalue).')
         if (!selectedParentFlatYarnId) throw new Error('You must select exactly one parent Flat Yarn batch.')
-        if (!treatment.trim()) throw new Error('Treatment / process is required (e.g. Twisting @ 1600 TPM).')
+        if (!yarnPatternValue.trim()) throw new Error('Enter a denier or plying value.')
+        if (
+          !Number.isFinite(Number(wastagePercentage))
+          || Number(wastagePercentage) < 0
+          || Number(wastagePercentage) > 100
+        ) {
+          throw new Error('Wastage percentage must be between 0 and 100.')
+        }
         if (!yarnInputQuantity || Number(yarnInputQuantity) <= 0) {
           throw new Error('Quantity consumed from the Flat Yarn parent is required.')
         }
@@ -100,10 +142,13 @@ export function CreateEntityModal({
         const res = await onCreateYarnBatch({
           batchId: yarnBatchId.trim(),
           parentEntityId: selectedParentFlatYarnId,
-          treatment: treatment.trim(),
+          treatment: yarnProcessType === 'T'
+            ? `Twisting ${yarnPatternValue.trim()} denier`
+            : `Plying ${yarnPatternValue.trim()}`,
           inputQuantity: Number(yarnInputQuantity),
           inputUnit: flatParent?.unit,
           quantity: yarnOutputQuantity ? Number(yarnOutputQuantity) : null,
+          wastagePercentage: Number(wastagePercentage),
           unit: yarnUnit,
           remarks: yarnRemarks.trim(),
         })
@@ -263,6 +308,21 @@ export function CreateEntityModal({
                 </label>
               </div>
 
+              {isAdmin && (
+                <label className="form-field">
+                  <span>Critical stock alert below ({flatUnit})</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={flatCriticalThreshold}
+                    onChange={(e) => setFlatCriticalThreshold(e.target.value)}
+                    placeholder="Optional threshold"
+                  />
+                  <small className="field-hint">Alert when known remaining stock falls below this amount.</small>
+                </label>
+              )}
+
               <label className="form-field">
                 <span>Remarks / Notes</span>
                 <textarea
@@ -288,7 +348,14 @@ export function CreateEntityModal({
                 <select
                   required
                   value={selectedParentFlatYarnId}
-                  onChange={(e) => setSelectedParentFlatYarnId(e.target.value)}
+                  onChange={(e) => {
+                    const parent = availableFlatYarns.find((item) => item.id === e.target.value)
+                    setSelectedParentFlatYarnId(e.target.value)
+                    if (parent) {
+                      updateYarnBatchId(parent)
+                      setYarnUnit(parent.unit || 'kg')
+                    }
+                  }}
                 >
                   <option value="">-- Choose Flat Yarn Source --</option>
                   {availableFlatYarns.map((fy) => (
@@ -304,27 +371,53 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Yarn Batch ID *</span>
+                  <span>Yarn process *</span>
+                  <select
+                    value={yarnProcessType}
+                    onChange={(e) => {
+                      setYarnProcessType(e.target.value)
+                      updateYarnBatchId(selectedFlatYarn, e.target.value)
+                    }}
+                  >
+                    <option value="T">Twisting</option>
+                    <option value="P">Plying</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{yarnProcessType === 'T' ? 'Denier *' : 'Plying value *'}</span>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 523 TA"
+                    list={yarnProcessType === 'T' ? 'twisting-denier-options' : undefined}
+                    placeholder={yarnProcessType === 'T' ? 'e.g. 1680' : 'Enter plying value'}
+                    value={yarnPatternValue}
+                    onChange={(e) => {
+                      setYarnPatternValue(e.target.value)
+                      updateYarnBatchId(selectedFlatYarn, yarnProcessType, e.target.value)
+                    }}
+                  />
+                  {yarnProcessType === 'T' && (
+                    <datalist id="twisting-denier-options">
+                      <option value="1680" />
+                      <option value="2520" />
+                      <option value="3360" />
+                      <option value="9600 1/3" />
+                    </datalist>
+                  )}
+                </label>
+              </div>
+
+              <div className="form-grid-2">
+                <label className="form-field">
+                  <span>Generated Yarn Batch ID *</span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Parent batch + yarn pattern"
                     value={yarnBatchId}
                     onChange={(e) => setYarnBatchId(e.target.value)}
                   />
-                  <small className="field-hint">e.g. 523 TA, 523 PB, etc.</small>
-                </label>
-
-                <label className="form-field">
-                  <span>Treatment / Process *</span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Twisting @ 1600 TPM"
-                    value={treatment}
-                    onChange={(e) => setTreatment(e.target.value)}
-                  />
-                  <small className="field-hint">Treatment used to produce this yarn</small>
+                  <small className="field-hint">Generated from the parent batch and pattern; edit only if needed to avoid a duplicate ID.</small>
                 </label>
               </div>
 
@@ -336,21 +429,45 @@ export function CreateEntityModal({
                     step="any"
                     min="0"
                     required
-                    max={availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)?.quantityRemaining}
-                    disabled={!hasAvailableMaterial(availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId))}
+                    max={selectedFlatYarn?.quantityRemaining}
+                    disabled={!hasAvailableMaterial(selectedFlatYarn)}
                     placeholder="e.g. 100"
                     value={yarnInputQuantity}
                     onChange={(e) => setYarnInputQuantity(e.target.value)}
                   />
                   <small className="field-hint">
-                    Available: {availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId)?.consumptionKnown
-                      ? `${availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId).quantityRemaining} ${availableFlatYarns.find((fy) => fy.id === selectedParentFlatYarnId).unit}`
+                    Available: {selectedFlatYarn?.consumptionKnown
+                      ? `${selectedFlatYarn.quantityRemaining} ${selectedFlatYarn.unit}`
                       : 'Unknown'}
                   </small>
                 </label>
 
                 <label className="form-field">
-                  <span>Yarn Output Quantity (Optional)</span>
+                  <span>Wastage estimate (%)</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max="100"
+                    value={wastagePercentage}
+                    onChange={(e) => setWastagePercentage(e.target.value)}
+                    required
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Estimated output</span>
+                  <input
+                    type="text"
+                    value={estimatedYarnOutput == null
+                      ? 'Unavailable: input/output units differ or input is unknown'
+                      : `${estimatedYarnOutput} ${yarnUnit} (estimate)`}
+                    disabled
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Actual output quantity (Optional)</span>
                   <input
                     type="number"
                     step="any"
@@ -376,8 +493,10 @@ export function CreateEntityModal({
                   <span>Yarn Output Unit</span>
                   <select value={yarnUnit} onChange={(e) => setYarnUnit(e.target.value)}>
                     <option value="kg">kg (Kilograms)</option>
-                    <option value="spools">spools</option>
                     <option value="meters">meters</option>
+                    <option value="lbs">lbs</option>
+                    <option value="spools">spools</option>
+                    <option value="coils">coils</option>
                   </select>
                 </label>
               </div>

@@ -7,6 +7,7 @@ import {
   Cpu,
   Anchor,
   ArrowRight,
+  Bell,
   Cloud,
   HardDrive,
 } from 'lucide-react'
@@ -19,14 +20,17 @@ export function Topbar({
   onOpenCreateModal,
   storageMode,
   profile,
+  notifications = [],
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchError, setSearchError] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [createMenuOpen, setCreateMenuOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const searchRef = useRef(null)
   const createMenuRef = useRef(null)
+  const notificationsRef = useRef(null)
 
   const displayName = profile?.display_name || 'Namah User'
   const initials = displayName
@@ -75,6 +79,9 @@ export function Topbar({
       }
       if (createMenuRef.current && !createMenuRef.current.contains(e.target)) {
         setCreateMenuOpen(false)
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target)) {
+        setNotificationsOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -127,6 +134,58 @@ export function Topbar({
       </div>
 
       <div className="topbar-right">
+        <div className="notification-container" ref={notificationsRef}>
+          <button
+            type="button"
+            className={`notification-button ${notifications.length ? 'has-notifications' : ''}`}
+            aria-label={`Notifications${notifications.length ? `, ${notifications.length} critical stock alerts` : ''}`}
+            aria-haspopup="true"
+            aria-expanded={notificationsOpen}
+            onClick={() => setNotificationsOpen((open) => !open)}
+          >
+            <Bell size={18} />
+            <span className="notification-button-label">Notifications</span>
+            {notifications.length > 0 && (
+              <span className="notification-count">{notifications.length}</span>
+            )}
+          </button>
+          {notificationsOpen && (
+            <section className="notification-dropdown" aria-label="Notifications" aria-live="polite">
+              <header>
+                <strong>Notifications</strong>
+                <span>{notifications.length}</span>
+              </header>
+              {notifications.length ? (
+                <div className="notification-list">
+                  {notifications.map((entity) => (
+                    <button
+                      key={entity.id}
+                      type="button"
+                      className="notification-item"
+                      onClick={() => {
+                        setNotificationsOpen(false)
+                        onSelectEntity(entity.id)
+                      }}
+                    >
+                      <span className="notification-item-marker" aria-hidden="true" />
+                      <span className="notification-item-copy">
+                        <strong>Critical stock · {entity.batch_id}</strong>
+                        <small>
+                          {entity.quantityRemaining} {entity.unit} remaining · threshold{' '}
+                          {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
+                        </small>
+                      </span>
+                      <ArrowRight size={14} />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="notification-empty">No batches are below their critical stock threshold.</p>
+              )}
+            </section>
+          )}
+        </div>
+
         {/* Global Search */}
         <div className="search-container" ref={searchRef}>
           <div className="search-bar-input-wrap">

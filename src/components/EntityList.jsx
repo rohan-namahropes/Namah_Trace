@@ -142,7 +142,7 @@ export function EntityList({
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="entity-row-item"
+              className={`entity-row-item ${item.lowStock ? 'low-stock-row' : ''}`}
               onClick={() => onSelectEntity(item.id)}
             >
               {/* Batch ID */}
@@ -196,6 +196,20 @@ export function EntityList({
                       : 'Unknown'}
                   </strong>
                 </span>
+                {item.type === 'flat_yarn' && item.lowStock && (
+                  <span className="warning-label critical-stock-badge">
+                    Below threshold: {item.quantityRemaining} {item.unit} / {item.critical_quantity_threshold} {item.critical_quantity_threshold_unit}
+                  </span>
+                )}
+                {item.type === 'flat_yarn' && item.thresholdUnitProblem && (
+                  <span className="warning-label">Check threshold units</span>
+                )}
+                {item.type === 'flat_yarn'
+                  && item.critical_quantity_threshold != null
+                  && !item.thresholdUnitProblem
+                  && !item.consumptionKnown && (
+                    <span className="warning-label">Stock alert unavailable: quantity unknown</span>
+                  )}
               </div>
 
               {/* Status */}

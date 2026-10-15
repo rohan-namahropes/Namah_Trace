@@ -1,15 +1,26 @@
 import React, { useState } from 'react'
-import { X, Upload, AlertCircle, FileText, Check } from 'lucide-react'
+import { X, Upload, AlertCircle } from 'lucide-react'
+import { EVIDENCE_ACCEPT, getEvidenceFileError } from './EvidenceFileInput'
 
-export function UploadEvidenceModal({ entity, onClose, onUpload }) {
+export function UploadEvidenceModal({ entity, initialTarget = null, onClose, onUpload }) {
   const [selectedFile, setSelectedFile] = useState(null)
-  const [processId, setProcessId] = useState('')
+  const [recordTarget, setRecordTarget] = useState(
+    initialTarget ? `${initialTarget.type}:${initialTarget.id}` : 'batch:'
+  )
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0])
+      const file = e.target.files[0]
+      const fileError = getEvidenceFileError(file)
+      if (fileError) {
+        setSelectedFile(null)
+        setError(fileError)
+        return
+      }
+      setSelectedFile(file)
+      setError('')
     }
   }
 
@@ -22,13 +33,16 @@ export function UploadEvidenceModal({ entity, onClose, onUpload }) {
 
     setBusy(true)
     setError('')
+    const [targetType, targetId] = recordTarget.split(':')
     try {
       const result = await onUpload({
         file: selectedFile,
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: selectedFile.type,
-        processId: processId || null,
+        processId: targetType === 'process' ? targetId : null,
+        parameterId: targetType === 'parameter' ? targetId : null,
+        testId: targetType === 'test' ? targetId : null,
       })
       if (result?.error) throw result.error
       onClose()
@@ -67,6 +81,7 @@ export function UploadEvidenceModal({ entity, onClose, onUpload }) {
               type="file"
               id="evidence-file-input"
               className="dropzone-input"
+              accept={EVIDENCE_ACCEPT}
               onChange={handleFileChange}
             />
             <label htmlFor="evidence-file-input" className="dropzone-label">
@@ -79,26 +94,33 @@ export function UploadEvidenceModal({ entity, onClose, onUpload }) {
               ) : (
                 <div className="dropzone-prompt">
                   <strong>Click to select file</strong>
-                  <span>Supports PDF, JPG, PNG, DOCX up to 25MB</span>
+                  <span>Supports PDF, JPG, PNG, DOCX, MP4, MOV, WebM up to 25MB</span>
                 </div>
               )}
             </label>
           </div>
 
-          {/* Optional process linkage */}
-          {entity.processes && entity.processes.length > 0 && (
-            <label className="form-field">
-              <span>Link to Process (Optional)</span>
-              <select value={processId} onChange={(e) => setProcessId(e.target.value)}>
-                <option value="">-- General Batch Document (Not linked to specific step) --</option>
-                {entity.processes.map((pr) => (
-                  <option key={pr.id} value={pr.id}>
-                    {pr.process_name} ({pr.specification || 'Process'})
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          <label className="form-field">
+            <span>Attach to record</span>
+            <select value={recordTarget} onChange={(e) => setRecordTarget(e.target.value)}>
+              <option value="batch:">Batch-level document</option>
+              {(entity.processes || []).map((process) => (
+                <option key={`process:${process.id}`} value={`process:${process.id}`}>
+                  Process · {process.process_name}
+                </option>
+              ))}
+              {(entity.parameters || []).map((parameter) => (
+                <option key={`parameter:${parameter.id}`} value={`parameter:${parameter.id}`}>
+                  Parameter · {parameter.name} ({parameter.value}{parameter.unit ? ` ${parameter.unit}` : ''})
+                </option>
+              ))}
+              {(entity.tests || []).map((test) => (
+                <option key={`test:${test.id}`} value={`test:${test.id}`}>
+                  Test · {test.test_name} ({test.value}{test.unit ? ` ${test.unit}` : ''})
+                </option>
+              ))}
+            </select>
+          </label>
 
           <div className="modal-actions">
             <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>

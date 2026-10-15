@@ -1,5 +1,5 @@
 import React from 'react'
-import { Anchor, ArrowRight, Cpu, History, Layers } from 'lucide-react'
+import { AlertTriangle, Anchor, ArrowRight, Cpu, History, Layers } from 'lucide-react'
 
 const batchTypes = [
   { type: 'rope', label: 'Rope batches', icon: Anchor },
@@ -17,7 +17,13 @@ function formatDate(value) {
   })
 }
 
-export function Dashboard({ entities, auditLogs, onSelectEntity, onNavigateView }) {
+export function Dashboard({
+  entities,
+  lowStockEntities = [],
+  auditLogs,
+  onSelectEntity,
+  onNavigateView,
+}) {
   const recentActivity = [...auditLogs]
     .sort((left, right) => new Date(right.created_at || 0) - new Date(left.created_at || 0))
     .slice(0, 6)
@@ -62,6 +68,32 @@ export function Dashboard({ entities, auditLogs, onSelectEntity, onNavigateView 
           </button>
         ))}
       </section>
+
+      {lowStockEntities.length > 0 && (
+        <section className="dashboard-stock-alerts" aria-labelledby="stock-alert-heading" role="alert">
+          <header>
+            <AlertTriangle size={17} />
+            <h2 id="stock-alert-heading">Critical Flat Yarn stock</h2>
+            <span>{lowStockEntities.length}</span>
+          </header>
+          <div className="dashboard-stock-alert-list">
+            {lowStockEntities.map((entity) => (
+              <button
+                key={entity.id}
+                type="button"
+                onClick={() => onSelectEntity(entity.id)}
+              >
+                <strong>{entity.batch_id}</strong>
+                <span>
+                  {entity.quantityRemaining} {entity.unit} remaining · below threshold{' '}
+                  {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
+                </span>
+                <ArrowRight size={14} />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="dashboard-v3-activity" aria-labelledby="dashboard-activity-heading">
         <header className="dashboard-v3-section-heading">

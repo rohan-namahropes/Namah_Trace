@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react'
 import { supabase } from './lib/supabase'
 import {
   listEntities,
@@ -17,22 +17,23 @@ import {
   getGlobalAuditLogs,
   getCurrentUserProfile,
   getStorageMode,
-  checkSupabaseAvailable,
+  getEvidenceDownloadUrl,
 } from './lib/api'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
-import { Dashboard } from './components/Dashboard'
-import { EntityList } from './components/EntityList'
-import { EntityDetail } from './components/EntityDetail'
-import { AuditTrailView } from './components/AuditTrailView'
-import { CreateEntityModal } from './components/CreateEntityModal'
-import { EditBasicInfoModal } from './components/EditBasicInfoModal'
-import { AddParameterModal } from './components/AddParameterModal'
-import { AddTestModal } from './components/AddTestModal'
-import { AddProcessModal } from './components/AddProcessModal'
-import { UploadEvidenceModal } from './components/UploadEvidenceModal'
-import { SqlMigrationModal } from './components/SqlMigrationModal'
 import { Login } from './components/Login'
+
+const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })))
+const EntityList = lazy(() => import('./components/EntityList').then((module) => ({ default: module.EntityList })))
+const EntityDetail = lazy(() => import('./components/EntityDetail').then((module) => ({ default: module.EntityDetail })))
+const AuditTrailView = lazy(() => import('./components/AuditTrailView').then((module) => ({ default: module.AuditTrailView })))
+const CreateEntityModal = lazy(() => import('./components/CreateEntityModal').then((module) => ({ default: module.CreateEntityModal })))
+const EditBasicInfoModal = lazy(() => import('./components/EditBasicInfoModal').then((module) => ({ default: module.EditBasicInfoModal })))
+const AddParameterModal = lazy(() => import('./components/AddParameterModal').then((module) => ({ default: module.AddParameterModal })))
+const AddTestModal = lazy(() => import('./components/AddTestModal').then((module) => ({ default: module.AddTestModal })))
+const AddProcessModal = lazy(() => import('./components/AddProcessModal').then((module) => ({ default: module.AddProcessModal })))
+const UploadEvidenceModal = lazy(() => import('./components/UploadEvidenceModal').then((module) => ({ default: module.UploadEvidenceModal })))
+const SqlMigrationModal = lazy(() => import('./components/SqlMigrationModal').then((module) => ({ default: module.SqlMigrationModal })))
 
 export function App() {
   const [session, setSession] = useState(null)
@@ -55,6 +56,7 @@ export function App() {
   const [addTestModalOpen, setAddTestModalOpen] = useState(false)
   const [addProcessModalOpen, setAddProcessModalOpen] = useState(false)
   const [uploadEvidenceModalOpen, setUploadEvidenceModalOpen] = useState(false)
+  const [evidenceTarget, setEvidenceTarget] = useState(null)
   const [sqlModalOpen, setSqlModalOpen] = useState(false)
 
   // 1. Check Auth & Session
@@ -91,29 +93,30 @@ export function App() {
   }, [])
 
   // 2. Load Entities & Audit Logs
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async ({
+    loadProfile = false,
+    detailId = null,
+  } = {}) => {
     try {
       if (!session?.user?.id) return
-      await checkSupabaseAvailable()
       setStorageMode(getStorageMode())
 
-      const [entRes, auditRes, profileRes] = await Promise.all([
+      const [entRes, auditRes, profileRes, detailRes] = await Promise.all([
         listEntities(),
         getGlobalAuditLogs(50),
-        getCurrentUserProfile(session.user.id),
+        loadProfile
+          ? getCurrentUserProfile(session.user.id)
+          : Promise.resolve({ data: null, error: null }),
+        detailId ? getEntity(detailId) : Promise.resolve({ data: null, error: null }),
       ])
       if (entRes.error) throw entRes.error
       if (profileRes.error) throw profileRes.error
+      if (detailRes.error) throw detailRes.error
 
       setEntities(entRes.data)
       setAuditLogs(auditRes)
-      setUserProfile(profileRes.data)
-
-      if (selectedEntityId) {
-        const detailRes = await getEntity(selectedEntityId)
-        if (detailRes.error) throw detailRes.error
-        setSelectedEntityData(detailRes.data)
-      }
+      if (profileRes.data) setUserProfile(profileRes.data)
+      if (detailRes.data) setSelectedEntityData(detailRes.data)
       setDataError('')
     } catch (error) {
       setStorageMode('unavailable')
@@ -122,7 +125,7 @@ export function App() {
       setSelectedEntityData(null)
       setDataError(error.message || 'Unable to load production data from Supabase.')
     }
-  }, [selectedEntityId, session?.user?.id])
+  }, [session?.user?.id])
 
   useEffect(() => {
     setUserProfile(null)
@@ -133,10 +136,10 @@ export function App() {
   }, [session?.user?.id])
 
   useEffect(() => {
-    if (session) {
-      refreshData()
+    if (session?.user?.id) {
+      refreshData({ loadProfile: true })
     }
-  }, [session, refreshData])
+  }, [session?.user?.id, refreshData])
 
   // When selectedEntityId changes, fetch full detail
   useEffect(() => {
@@ -179,12 +182,34 @@ export function App() {
     setSelectedEntityId(null)
   }
 
-  const finishMutation = async (result) => {
+  const finishMutation = async (result, detailId = selectedEntityId) => {
     if (result.data || result.error?.operationCommitted) {
-      await refreshData()
+      await refreshData({ detailId })
     }
     if (result.error) setDataError(result.error.message)
     return result
+  }
+
+  const handleDownloadEvidence = async (evidenceId) => {
+    if (!selectedEntityId || !evidenceId) return
+    const downloadWindow = window.open('about:blank', '_blank')
+    if (!downloadWindow) {
+      setDataError('Allow pop-ups to download evidence.')
+      return
+    }
+    downloadWindow.opener = null
+
+    const result = await getEvidenceDownloadUrl(selectedEntityId, evidenceId)
+    if (result.error) {
+      downloadWindow.close()
+      setDataError(result.error.message)
+      return
+    }
+    const downloadUrl = result.data
+    if (downloadUrl) {
+      downloadWindow.location.href = downloadUrl
+      setDataError('')
+    }
   }
 
   // Navigation handlers
@@ -207,19 +232,19 @@ export function App() {
   const handleCreateFlatYarn = async (params) => {
     const res = await createFlatYarn(params)
     if (res.data) setSelectedEntityId(res.data.id)
-    return finishMutation(res)
+    return finishMutation(res, null)
   }
 
   const handleCreateYarnBatch = async (params) => {
     const res = await createYarnBatch(params)
     if (res.data) setSelectedEntityId(res.data.id)
-    return finishMutation(res)
+    return finishMutation(res, null)
   }
 
   const handleCreateRopeBatch = async (params) => {
     const res = await createRopeBatch(params)
     if (res.data) setSelectedEntityId(res.data.id)
-    return finishMutation(res)
+    return finishMutation(res, null)
   }
 
   // Edit Handlers
@@ -236,7 +261,9 @@ export function App() {
   // Parameter Handlers
   const handleAddParameter = async (param) => {
     if (!selectedEntityId) return
-    return finishMutation(await addParameter(selectedEntityId, param))
+    const { evidenceFile, ...fields } = param
+    const result = await addParameter(selectedEntityId, fields)
+    return finishRecordWithEvidence(result, evidenceFile, 'parameter')
   }
 
   const handleDeleteParameter = async (paramId, paramName) => {
@@ -248,7 +275,9 @@ export function App() {
   // Test Handlers
   const handleAddTest = async (test) => {
     if (!selectedEntityId) return
-    return finishMutation(await addTest(selectedEntityId, test))
+    const { evidenceFile, ...fields } = test
+    const result = await addTest(selectedEntityId, fields)
+    return finishRecordWithEvidence(result, evidenceFile, 'test')
   }
 
   const handleDeleteTest = async (testId, testName) => {
@@ -260,10 +289,32 @@ export function App() {
   // Process Handlers
   const handleAddProcess = async (proc) => {
     if (!selectedEntityId) return
-    return finishMutation(await addProcess(selectedEntityId, proc))
+    const { evidenceFile, ...fields } = proc
+    const result = await addProcess(selectedEntityId, fields)
+    return finishRecordWithEvidence(result, evidenceFile, 'process')
   }
 
   // Evidence Handlers
+  const finishRecordWithEvidence = async (recordResult, file, recordType) => {
+    if (recordResult.error || !file || !selectedEntityId) {
+      return finishMutation(recordResult)
+    }
+
+    const evidenceResult = await addEvidence(selectedEntityId, {
+      file,
+      [`${recordType}Id`]: recordResult.data.id,
+    })
+    if (evidenceResult.error) {
+      const error = new Error(
+        `${recordType[0].toUpperCase()}${recordType.slice(1)} saved, but evidence upload failed: ${evidenceResult.error.message}`
+      )
+      error.operationCommitted = true
+      error.recordSaved = true
+      return finishMutation({ data: null, error })
+    }
+    return finishMutation(recordResult)
+  }
+
   const handleUploadEvidence = async (ev) => {
     if (!selectedEntityId) return
     return finishMutation(await addEvidence(selectedEntityId, ev))
@@ -365,6 +416,7 @@ export function App() {
           onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier || 'flat_yarn' })}
           storageMode={storageMode}
           profile={userProfile}
+          notifications={entities.filter((entity) => entity.lowStock)}
         />
 
         {/* Main Content Area */}
@@ -374,6 +426,7 @@ export function App() {
               {dataError}
             </div>
           )}
+          <Suspense fallback={<div className="page-loading-state">Loading workspace...</div>}>
           {selectedEntityData ? (
             <EntityDetail
               entity={selectedEntityData}
@@ -385,7 +438,15 @@ export function App() {
               onOpenAddParamModal={() => setAddParamModalOpen(true)}
               onOpenAddTestModal={() => setAddTestModalOpen(true)}
               onOpenAddProcessModal={() => setAddProcessModalOpen(true)}
-              onOpenUploadEvidenceModal={() => setUploadEvidenceModalOpen(true)}
+              onOpenUploadEvidenceModal={() => {
+                setEvidenceTarget(null)
+                setUploadEvidenceModalOpen(true)
+              }}
+              onAttachEvidence={(type, id) => {
+                setEvidenceTarget({ type, id })
+                setUploadEvidenceModalOpen(true)
+              }}
+              onDownloadEvidence={handleDownloadEvidence}
               onDeleteParam={handleDeleteParameter}
               onDeleteTest={handleDeleteTest}
               onUpdateStatus={handleUpdateStatus}
@@ -395,6 +456,7 @@ export function App() {
               {activeView === 'dashboard' && (
                 <Dashboard
                   entities={entities}
+                  lowStockEntities={entities.filter((entity) => entity.lowStock)}
                   auditLogs={auditLogs}
                   onSelectEntity={handleSelectEntity}
                   onNavigateView={handleNavigateView}
@@ -417,15 +479,18 @@ export function App() {
               )}
             </>
           )}
+          </Suspense>
         </main>
       </div>
 
       {/* MODALS */}
+      <Suspense fallback={null}>
       {createModal.open && (
         <CreateEntityModal
           initialType={createModal.type}
           availableFlatYarns={availableFlatYarns}
           availableYarns={availableYarns}
+          isAdmin={userProfile.role === 'admin'}
           onClose={() => setCreateModal({ open: false, type: 'flat_yarn' })}
           onCreateFlatYarn={handleCreateFlatYarn}
           onCreateYarnBatch={handleCreateYarnBatch}
@@ -436,6 +501,7 @@ export function App() {
       {editBasicModalOpen && selectedEntityData && (
         <EditBasicInfoModal
           entity={selectedEntityData}
+          isAdmin={userProfile.role === 'admin'}
           onClose={() => setEditBasicModalOpen(false)}
           onSave={handleUpdateBasicInfo}
         />
@@ -450,6 +516,8 @@ export function App() {
 
       {addTestModalOpen && selectedEntityData && (
         <AddTestModal
+          entityType={selectedEntityData.type}
+          processes={selectedEntityData.processes || []}
           onClose={() => setAddTestModalOpen(false)}
           onSave={handleAddTest}
         />
@@ -457,6 +525,7 @@ export function App() {
 
       {addProcessModalOpen && selectedEntityData && (
         <AddProcessModal
+          entityType={selectedEntityData.type}
           onClose={() => setAddProcessModalOpen(false)}
           onSave={handleAddProcess}
         />
@@ -465,7 +534,11 @@ export function App() {
       {uploadEvidenceModalOpen && selectedEntityData && (
         <UploadEvidenceModal
           entity={selectedEntityData}
-          onClose={() => setUploadEvidenceModalOpen(false)}
+          initialTarget={evidenceTarget}
+          onClose={() => {
+            setEvidenceTarget(null)
+            setUploadEvidenceModalOpen(false)
+          }}
           onUpload={handleUploadEvidence}
         />
       )}
@@ -473,6 +546,7 @@ export function App() {
       {sqlModalOpen && userProfile.role === 'admin' && (
         <SqlMigrationModal onClose={() => setSqlModalOpen(false)} />
       )}
+      </Suspense>
     </div>
   )
 }

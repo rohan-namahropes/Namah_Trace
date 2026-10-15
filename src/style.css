@@ -638,6 +638,147 @@ code, .mono {
   gap: 16px;
 }
 
+.notification-container {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.notification-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.notification-button:hover,
+.notification-button[aria-expanded='true'] {
+  color: var(--brand-navy);
+  border-color: var(--brand-navy);
+  background: var(--brand-navy-subtle);
+}
+
+.notification-button.has-notifications {
+  color: #a61b1b;
+  border-color: #e79a96;
+}
+
+.notification-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  color: white;
+  border-radius: 9px;
+  background: #b42318;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 80;
+  width: min(360px, calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 12px 32px rgba(16, 28, 40, 0.18);
+}
+
+.notification-dropdown > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.notification-dropdown > header span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.notification-list {
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 13px;
+  color: var(--text-main);
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: #fff7f6;
+  cursor: pointer;
+  text-align: left;
+}
+
+.notification-item:last-child {
+  border-bottom: 0;
+}
+
+.notification-item:hover {
+  background: #ffe9e6;
+}
+
+.notification-item-marker {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #b42318;
+}
+
+.notification-item-copy {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-item-copy strong {
+  color: #8f1414;
+  font-size: 11px;
+}
+
+.notification-item-copy small {
+  color: #793a37;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.notification-item > svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: #a61b1b;
+}
+
+.notification-empty {
+  margin: 0;
+  padding: 15px 13px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 /* Search Bar */
 .search-container {
   position: relative;
@@ -1471,6 +1612,38 @@ code, .mono {
 
 .entity-row-item:hover {
   background-color: var(--brand-navy-subtle);
+}
+
+.entity-row-item.low-stock-row {
+  background: #fff1f0;
+  box-shadow: inset 4px 0 #c62828;
+}
+
+.entity-row-item.low-stock-row:hover {
+  background: #ffe3e0;
+}
+
+.entity-row-item.low-stock-row .batch-id-badge,
+.entity-row-item.low-stock-row .cell-quantity,
+.entity-row-item.low-stock-row .cell-quantity strong {
+  color: #a61b1b;
+}
+
+.entity-row-item.low-stock-row .quantity-tag {
+  color: #8f1414;
+  border-color: #e6a09b;
+  background: #ffe2df;
+}
+
+.critical-stock-badge {
+  align-self: flex-start;
+  padding: 3px 6px;
+  color: #8f1414;
+  border: 1px solid #e79a96;
+  border-radius: 4px;
+  background: #ffe2df;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .mobile-only-type-tag {
@@ -3897,6 +4070,20 @@ code, .mono {
       gap: 7px;
     }
 
+    .notification-button {
+      min-width: 36px;
+      justify-content: center;
+      padding: 0 7px;
+    }
+
+    .notification-button-label {
+      display: none;
+    }
+
+    .notification-dropdown {
+      right: -43px;
+    }
+
     .search-container {
       width: clamp(92px, 27vw, 145px);
     }
@@ -5137,5 +5324,254 @@ code, .mono {
 
   .dashboard-v3-activity-row > svg {
     display: none;
+  }
+}
+.dashboard-stock-alerts {
+  margin: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid #e79a96;
+  border-radius: 10px;
+  background: #fff4f3;
+}
+
+.dashboard-stock-alerts > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 15px;
+  color: #a61b1b;
+  border-bottom: 1px solid #f0c5c2;
+}
+
+.dashboard-stock-alerts > header h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.dashboard-stock-alerts > header > span {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-stock-alert-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.dashboard-stock-alert-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 15px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #f0c5c2;
+  cursor: pointer;
+}
+
+.dashboard-stock-alert-list button:hover {
+  background: #ffe5e2;
+}
+
+.dashboard-stock-alert-list button strong {
+  flex: 0 0 auto;
+  color: #8f1414;
+}
+
+.dashboard-stock-alert-list button span {
+  flex: 1;
+  min-width: 0;
+  color: #793a37;
+  font-size: 12px;
+}
+
+.inline-evidence-field {
+  gap: 6px;
+}
+
+.inline-evidence-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--brand-navy);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  font-size: 12px;
+}
+
+.inline-evidence-picker > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-evidence-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.inline-evidence-field:focus-within .inline-evidence-picker {
+  outline: 2px solid var(--brand-navy);
+  outline-offset: 2px;
+}
+
+.detail-workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px);
+  align-items: start;
+  gap: 18px;
+}
+
+.detail-records-column {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.detail-genealogy-panel {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+  max-height: 400px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(24, 40, 58, 0.06);
+}
+
+.detail-genealogy-panel > header {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.detail-genealogy-panel > header h2 {
+  margin: 0;
+  color: var(--brand-navy);
+  font-size: 13px;
+}
+
+.genealogy-flow-scroll {
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.genealogy-flow-board {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 40px;
+  width: max-content;
+  min-width: 100%;
+  padding: 8px 0;
+}
+
+.genealogy-flow-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.genealogy-flow-node {
+  flex: 0 0 auto;
+  min-width: 74px;
+  max-width: 120px;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+  text-align: center;
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: #fff;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.genealogy-flow-node:hover {
+  border-color: #9cb4cc;
+  background: #f7faff;
+}
+
+.genealogy-flow-node.current {
+  color: var(--brand-navy);
+  border-color: var(--brand-navy);
+  background: #eef5fc;
+  font-weight: 700;
+  cursor: default;
+}
+
+.genealogy-flow-connectors {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.genealogy-flow-connectors path {
+  fill: none;
+  stroke: #8795a3;
+  stroke-width: 1.3;
+}
+
+.genealogy-flow-connectors marker path {
+  fill: #8795a3;
+  stroke: none;
+}
+
+@media (max-width: 900px) {
+  .detail-workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-genealogy-panel {
+    position: static;
+    max-height: none;
+  }
+
+  .genealogy-flow-scroll {
+    max-height: 360px;
+  }
+}
+
+.page-loading-state {
+  padding: 28px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (min-width: 1400px) {
+  .page {
+    max-width: 1600px;
+  }
+
+  .dashboard-v3 {
+    max-width: 1440px;
+  }
+
+  .detail-page {
+    max-width: 1440px;
+  }
+
+  .detail-basic-grid {
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
   }
 }

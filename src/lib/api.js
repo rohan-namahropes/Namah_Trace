@@ -111,13 +111,42 @@ async function enrichEntities(entities) {
   }))
 }
 
-function mapGenealogy(entity, entities, links) {
+function mapGenealogy(entity, entities, links, balanceLinks = links) {
   const byId = new Map(entities.map((item) => [item.id, item]))
+  const treeEdges = links
+    .filter((link) => byId.has(link.parent_entity_id) && byId.has(link.child_entity_id))
+    .map((link) => {
+      const parent = byId.get(link.parent_entity_id)
+      const child = byId.get(link.child_entity_id)
+      const parentBalance = quantityBalance(parent, balanceLinks)
+      const childBalance = quantityBalance(child, balanceLinks)
+      return {
+        id: link.id,
+        parentId: parent.id,
+        parentBatchId: parent.batch_id,
+        parentType: parent.type,
+        parentUnit: parent.unit,
+        parentRemaining: parentBalance.quantityRemaining,
+        parentRemainingKnown: parentBalance.consumptionKnown,
+        childId: child.id,
+        childBatchId: child.batch_id,
+        childType: child.type,
+        childUnit: child.unit,
+        childRemaining: childBalance.quantityRemaining,
+        childRemainingKnown: childBalance.consumptionKnown,
+        quantityUsed: link.quantity_used,
+        unit: link.unit,
+      }
+    })
+    .sort((left, right) => (
+      left.parentBatchId.localeCompare(right.parentBatchId)
+      || left.childBatchId.localeCompare(right.childBatchId)
+    ))
   const parents = links
     .filter((link) => link.child_entity_id === entity.id)
     .map((link) => {
       const parent = byId.get(link.parent_entity_id)
-      const balance = parent ? quantityBalance(parent, links) : null
+      const balance = parent ? quantityBalance(parent, balanceLinks) : null
       return {
         linkId: link.id,
         entityId: link.parent_entity_id,
@@ -137,7 +166,7 @@ function mapGenealogy(entity, entities, links) {
     .filter((link) => link.parent_entity_id === entity.id)
     .map((link) => {
       const child = byId.get(link.child_entity_id)
-      const balance = child ? quantityBalance(child, links) : null
+      const balance = child ? quantityBalance(child, balanceLinks) : null
       return {
         linkId: link.id,
         entityId: link.child_entity_id,
@@ -189,7 +218,7 @@ function mapGenealogy(entity, entities, links) {
       }
     }
   }
-  return { parents, grandparents, children, grandchildren }
+  return { parents, grandparents, children, grandchildren, treeEdges }
 }
 
 function quantityBalance(entity, links) {
@@ -214,7 +243,16 @@ function quantityBalance(entity, links) {
   }
 }
 
-async function entityBundle(entityId) {
+function hasComparableCriticalThreshold(entity) {
+  return entity.critical_quantity_threshold != null
+    && Number.isFinite(Number(entity.critical_quantity_threshold))
+    && Number(entity.critical_quantity_threshold) >= 0
+    && Boolean(entity.unit?.trim())
+    && Boolean(entity.critical_quantity_threshold_unit?.trim())
+    && entity.unit === entity.critical_quantity_threshold_unit
+}
+
+async function entityBundle(entityId, knownEntity = null) {
   const db = requireSupabase()
   const [
     entity,
@@ -225,7 +263,9 @@ async function entityBundle(entityId) {
     auditLogs,
     genealogyLinks,
   ] = await Promise.all([
-    queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle()),
+    knownEntity
+      ? Promise.resolve(knownEntity)
+      : queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle()),
     queryData(db.from('entity_parameters').select('*').eq('entity_id', entityId).order('created_at')),
     queryData(db.from('entity_tests').select('*').eq('entity_id', entityId).order('created_at')),
     queryData(db.from('entity_processes').select('*').eq('entity_id', entityId).order('performed_at')),
@@ -255,7 +295,38 @@ async function entityBundle(entityId) {
   const relatedEntities = relatedIds.length
     ? await queryData(db.from('entities').select('*').in('id', relatedIds))
     : []
+  const ancestorIds = new Set([entityId])
+  const descendantIds = new Set([entityId])
+  let expanded = true
+  while (expanded) {
+    expanded = false
+    for (const link of allGenealogyLinks) {
+      if (ancestorIds.has(link.child_entity_id) && !ancestorIds.has(link.parent_entity_id)) {
+        ancestorIds.add(link.parent_entity_id)
+        expanded = true
+      }
+      if (descendantIds.has(link.parent_entity_id) && !descendantIds.has(link.child_entity_id)) {
+        descendantIds.add(link.child_entity_id)
+        expanded = true
+      }
+    }
+  }
+  const lineageLinks = allGenealogyLinks.filter((link) => (
+    (ancestorIds.has(link.parent_entity_id) && ancestorIds.has(link.child_entity_id))
+    || (descendantIds.has(link.parent_entity_id) && descendantIds.has(link.child_entity_id))
+  ))
   const balance = quantityBalance(entity, allGenealogyLinks)
+  const lowStock = entity.type === 'flat_yarn'
+    && hasComparableCriticalThreshold(entity)
+    && balance.quantityRemaining != null
+    && balance.quantityRemaining < Number(entity.critical_quantity_threshold)
+  const thresholdUnitProblem = entity.type === 'flat_yarn'
+    && entity.critical_quantity_threshold != null
+    && (
+      !entity.unit?.trim()
+      || !entity.critical_quantity_threshold_unit?.trim()
+      || entity.unit !== entity.critical_quantity_threshold_unit
+    )
   const peopleIds = [
     entity.created_by,
     ...tests.map((item) => item.performed_by),
@@ -265,29 +336,26 @@ async function entityBundle(entityId) {
     ...relatedEntities.map((item) => item.created_by),
   ]
   const profiles = await fetchProfiles(peopleIds)
-  const evidence = await Promise.all(evidenceRows.map(async (item) => {
-    let storagePath = ''
-    if (item.storage_path) {
-      const { data, error } = await db.storage
-        .from(EVIDENCE_BUCKET)
-        .createSignedUrl(item.storage_path, 3600)
-      if (error) throw error
-      if (!data?.signedUrl) throw new Error(`Unable to create a download link for ${item.file_name}.`)
-      storagePath = data.signedUrl
-    }
-    return {
-      ...item,
-      uploaded_by_name: profiles.get(item.uploaded_by) || null,
-      storage_path: storagePath,
-    }
+  const processLookup = new Map(processes.map((item) => [item.id, item]))
+  const parameterLookup = new Map(parameters.map((item) => [item.id, item]))
+  const testLookup = new Map(tests.map((item) => [item.id, item]))
+  const evidence = evidenceRows.map((item) => ({
+    ...item,
+    uploaded_by_name: profiles.get(item.uploaded_by) || null,
+    process_name: item.process_id ? processLookup.get(item.process_id)?.process_name || null : null,
+    parameter_name: item.parameter_id ? parameterLookup.get(item.parameter_id)?.name || null : null,
+    test_name: item.test_id ? testLookup.get(item.test_id)?.test_name || null : null,
   }))
   return {
     ...entity,
     ...balance,
+    lowStock,
+    thresholdUnitProblem,
     created_by_name: profiles.get(entity.created_by) || null,
     parameters,
     tests: tests.map((item) => ({
       ...item,
+      process_name: item.process_id ? processLookup.get(item.process_id)?.process_name || null : null,
       performed_by_name: profiles.get(item.performed_by) || null,
     })),
     processes: processes.map((item) => ({
@@ -299,7 +367,7 @@ async function entityBundle(entityId) {
       ...withAuditDisplayFields(item),
       performed_by_name: profiles.get(item.performed_by) || null,
     })),
-    genealogy: mapGenealogy(entity, [entity, ...relatedEntities], allGenealogyLinks),
+    genealogy: mapGenealogy(entity, [entity, ...relatedEntities], lineageLinks, allGenealogyLinks),
   }
 }
 
@@ -348,10 +416,26 @@ export async function listEntities(type = null) {
           .in('parent_entity_id', entities.map((entity) => entity.id))
       )
       : []
-    return enrichEntities(entities.map((entity) => ({
-      ...entity,
-      ...quantityBalance(entity, links),
-    })))
+    return enrichEntities(entities.map((entity) => {
+      const balance = quantityBalance(entity, links)
+      const lowStock = entity.type === 'flat_yarn'
+        && hasComparableCriticalThreshold(entity)
+        && balance.quantityRemaining != null
+        && balance.quantityRemaining < Number(entity.critical_quantity_threshold)
+      const thresholdUnitProblem = entity.type === 'flat_yarn'
+        && entity.critical_quantity_threshold != null
+        && (
+          !entity.unit?.trim()
+          || !entity.critical_quantity_threshold_unit?.trim()
+          || entity.unit !== entity.critical_quantity_threshold_unit
+        )
+      return {
+        ...entity,
+        ...balance,
+        lowStock,
+        thresholdUnitProblem,
+      }
+    }))
   })
 }
 
@@ -359,21 +443,38 @@ export async function getEntity(idOrBatchId) {
   return withResult(async () => {
     const entity = await findEntity(idOrBatchId)
     if (!entity) throw new Error('Entity not found')
-    const data = await entityBundle(entity.id)
+    const data = await entityBundle(entity.id, entity)
     if (!data) throw new Error('Entity not found')
     return data
   })
 }
 
-export async function createFlatYarn({ batchId, supplier, quantity, unit = 'kg', notes }) {
+export async function createFlatYarn({
+  batchId,
+  supplier,
+  quantity,
+  unit = 'kg',
+  criticalQuantityThreshold = null,
+  criticalQuantityThresholdUnit = unit,
+  notes,
+}) {
   return withResult(async () => {
     const db = requireSupabase()
+    if (criticalQuantityThreshold != null && (
+      !Number.isFinite(Number(criticalQuantityThreshold))
+      || Number(criticalQuantityThreshold) < 0
+      || criticalQuantityThresholdUnit !== unit
+    )) {
+      throw new Error('Critical stock threshold must be finite, non-negative, and use the batch stock unit.')
+    }
     const entity = await queryData(db.from('entities').insert({
       type: 'flat_yarn',
       batch_id: String(batchId).trim(),
       supplier: supplier?.trim() || null,
       quantity: quantity == null || quantity === '' ? null : Number(quantity),
       unit: unit || 'kg',
+      critical_quantity_threshold: criticalQuantityThreshold,
+      critical_quantity_threshold_unit: criticalQuantityThreshold == null ? null : criticalQuantityThresholdUnit,
       status: 'In Progress',
       notes: notes?.trim() || '',
     }).select().single())
@@ -397,6 +498,7 @@ export async function createYarnBatch({
   inputQuantity,
   inputUnit,
   quantity,
+  wastagePercentage = 3.5,
   unit = 'kg',
   remarks,
 }) {
@@ -405,7 +507,11 @@ export async function createYarnBatch({
     if (!inputQuantity || Number(inputQuantity) <= 0) {
       throw new Error('Quantity consumed from the Flat Yarn parent is required.')
     }
-    const entityId = await queryData(db.rpc('create_batch_with_consumption', {
+    const percentage = Number(wastagePercentage)
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      throw new Error('Wastage percentage must be between 0 and 100.')
+    }
+    const entityId = await queryData(db.rpc('create_yarn_batch_with_consumption', {
       p_entity: {
         type: 'yarn',
         batch_id: String(batchId).trim(),
@@ -421,8 +527,49 @@ export async function createYarnBatch({
         unit: inputUnit,
         remarks: remarks?.trim() || null,
       }],
+      p_wastage_percentage: percentage,
     }))
-    return { id: entityId, type: 'yarn', batch_id: String(batchId).trim() }
+    return {
+      id: entityId,
+      type: 'yarn',
+      batch_id: String(batchId).trim(),
+      estimated_output_quantity: inputUnit === unit
+        ? Number(inputQuantity) * (100 - percentage) / 100
+        : null,
+      wastage_percentage: percentage,
+    }
+  })
+}
+
+export async function listYarnConfigurations() {
+  return withResult(async () => {
+    const db = requireSupabase()
+    return queryData(
+      db.from('yarn_configurations').select('*').order('name')
+    )
+  })
+}
+
+export async function saveYarnConfiguration({ name, suffix, twistingDenier, plyingConfiguration }) {
+  return withResult(async () => {
+    const trimmedName = String(name || '').trim()
+    const trimmedSuffix = String(suffix || '').trim()
+    const denier = String(twistingDenier || '').trim()
+    if (!trimmedName || !denier) {
+      throw new Error('Configuration name and twisting denier are required.')
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(trimmedSuffix)) {
+      throw new Error('Suffix must start with a letter or number and contain only letters, numbers, hyphens, or underscores.')
+    }
+    const db = requireSupabase()
+    return queryData(
+      db.from('yarn_configurations').insert({
+        name: trimmedName,
+        suffix: trimmedSuffix,
+        twisting_denier: denier,
+        plying_configuration: String(plyingConfiguration || '').trim(),
+      }).select().single()
+    )
   })
 }
 
@@ -455,11 +602,55 @@ export async function updateEntityBasicInfo(entityId, updates) {
     const db = requireSupabase()
     const current = await queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle())
     if (!current) throw new Error('Entity not found')
-    const allowed = ['supplier', 'treatment', 'quantity', 'unit', 'notes']
+    const allowed = [
+      'supplier',
+      'treatment',
+      'quantity',
+      'unit',
+      'estimated_output_quantity',
+      'wastage_percentage',
+      'critical_quantity_threshold',
+      'critical_quantity_threshold_unit',
+      'notes',
+    ]
     const changes = Object.fromEntries(
       allowed.filter((field) => field in updates).map((field) => [field, updates[field]])
     )
+    if (
+      current.type === 'flat_yarn'
+      && changes.critical_quantity_threshold != null
+    ) {
+      if (
+        !Number.isFinite(Number(changes.critical_quantity_threshold))
+        || Number(changes.critical_quantity_threshold) < 0
+      ) {
+        throw new Error('Critical stock threshold must be a finite, non-negative quantity.')
+      }
+      const stockUnit = changes.unit ?? current.unit
+      const thresholdUnit = changes.critical_quantity_threshold_unit ?? current.critical_quantity_threshold_unit
+      if (!stockUnit || !thresholdUnit || stockUnit !== thresholdUnit) {
+        throw new Error('Critical stock threshold unit must match the batch stock unit.')
+      }
+    }
+    if (changes.wastage_percentage != null) {
+      const percentage = Number(changes.wastage_percentage)
+      if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+        throw new Error('Wastage percentage must be between 0 and 100.')
+      }
+    }
+    if (changes.estimated_output_quantity != null) {
+      const estimate = Number(changes.estimated_output_quantity)
+      if (!Number.isFinite(estimate) || estimate < 0) {
+        throw new Error('Estimated output must be a finite, non-negative quantity.')
+      }
+    }
     const auditEvents = []
+    const fieldLabels = {
+      estimated_output_quantity: 'Estimated output',
+      wastage_percentage: 'Wastage percentage',
+      critical_quantity_threshold: 'Critical stock threshold',
+      critical_quantity_threshold_unit: 'Critical threshold unit',
+    }
     for (const field of allowed) {
       if (!(field in changes) || changes[field] === current[field]) continue
       const oldValue = current[field] == null ? '' : String(current[field])
@@ -468,7 +659,7 @@ export async function updateEntityBasicInfo(entityId, updates) {
         entityId,
         action: field === 'notes'
           ? 'Updated notes / remarks'
-          : `${field[0].toUpperCase()}${field.slice(1)} changed from "${oldValue || 'None'}" to "${newValue || 'None'}"`,
+          : `${fieldLabels[field] || `${field[0].toUpperCase()}${field.slice(1)}`} changed from "${oldValue || 'None'}" to "${newValue || 'None'}"`,
         fieldName: field,
         oldValue,
         newValue,
@@ -569,14 +760,26 @@ export async function deleteParameter(entityId, paramId) {
   })
 }
 
-export async function addTest(entityId, { testName, value, unit, remarks, result = 'Pass' }) {
+export async function addTest(entityId, {
+  testName,
+  value,
+  unit,
+  productCategory,
+  applicableStandard,
+  remarks,
+  result = 'Pass',
+  processId = null,
+}) {
   return withResult(async () => {
     const db = requireSupabase()
     const test = await queryData(db.from('entity_tests').insert({
       entity_id: entityId,
+      process_id: processId || null,
       test_name: String(testName).trim(),
       value: String(value).trim(),
       unit: unit?.trim() || '',
+      product_category: productCategory?.trim() || null,
+      applicable_standard: applicableStandard?.trim() || null,
       result: result || 'Pass',
       remarks: remarks?.trim() || '',
     }).select().single())
@@ -650,16 +853,42 @@ export async function addProcess(entityId, { processName, specification, remarks
   })
 }
 
-export async function addEvidence(entityId, { file, fileName, fileSize, mimeType, processId = null }) {
+export async function addEvidence(entityId, {
+  file,
+  fileName,
+  fileSize,
+  processId = null,
+  parameterId = null,
+  testId = null,
+}) {
   return withResult(async () => {
     const db = requireSupabase()
     if (!file) throw new Error('Select a file to upload.')
+    if (file.size > 25 * 1024 * 1024) throw new Error('Evidence files must be 25 MB or smaller.')
+    const extension = String(file.name || fileName || '').split('.').pop().toLowerCase()
+    const mimeByExtension = {
+      pdf: 'application/pdf',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      mp4: 'video/mp4',
+      mov: 'video/quicktime',
+      webm: 'video/webm',
+    }
+    const resolvedMimeType = mimeByExtension[extension]
+    if (!resolvedMimeType || (file.type && file.type !== resolvedMimeType && file.type !== 'application/octet-stream')) {
+      throw new Error('Supported evidence types are PDF, JPG, PNG, DOCX, MP4, MOV, and WebM.')
+    }
+    if ([processId, parameterId, testId].filter(Boolean).length > 1) {
+      throw new Error('Evidence can be linked to only one record at a time.')
+    }
     const entity = await queryData(db.from('entities').select('id').eq('id', entityId).maybeSingle())
     if (!entity) throw new Error('Entity not found')
     const storagePath = `${entityId}/${crypto.randomUUID()}`
     const storage = db.storage.from(EVIDENCE_BUCKET)
     const { error: uploadError } = await storage.upload(storagePath, file, {
-      contentType: mimeType || file.type || 'application/octet-stream',
+      contentType: resolvedMimeType,
       upsert: false,
     })
     if (uploadError) throw uploadError
@@ -668,9 +897,11 @@ export async function addEvidence(entityId, { file, fileName, fileSize, mimeType
       evidence = await queryData(db.from('entity_evidence').insert({
         entity_id: entityId,
         process_id: processId,
+        parameter_id: parameterId,
+        test_id: testId,
         file_name: fileName || file.name,
         file_size: fileSize ?? file.size,
-        mime_type: mimeType || file.type || 'application/octet-stream',
+        mime_type: resolvedMimeType,
         storage_path: storagePath,
       }).select().single())
     } catch (error) {
@@ -682,16 +913,51 @@ export async function addEvidence(entityId, { file, fileName, fileSize, mimeType
     }
 
     try {
+      const linkDescription = testId
+        ? `test ${testId}`
+        : parameterId
+          ? `parameter ${parameterId}`
+          : processId
+            ? `process ${processId}`
+            : 'batch'
       await writeAuditLog(
         entityId,
-        `Uploaded evidence attachment: ${evidence.file_name}`,
-        { field_name: 'evidence', new_value: evidence.file_name }
+        `Uploaded evidence attachment: ${evidence.file_name} (${linkDescription})`,
+        {
+          field_name: 'evidence',
+          new_value: evidence.file_name,
+          linked_record: linkDescription,
+        }
       )
     } catch (error) {
       throw committedAuditError(error)
     }
 
     return evidence
+  })
+}
+
+export async function getEvidenceDownloadUrl(entityId, evidenceId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const evidence = await queryData(
+      db.from('entity_evidence')
+        .select('*')
+        .eq('id', evidenceId)
+        .eq('entity_id', entityId)
+        .maybeSingle()
+    )
+    if (!evidence || !evidence.storage_path) {
+      throw new Error('Evidence attachment not found.')
+    }
+
+    const { data, error } = await db.storage
+      .from(EVIDENCE_BUCKET)
+      .createSignedUrl(evidence.storage_path, 3600)
+
+    if (error) throw error
+    if (!data?.signedUrl) throw new Error('Unable to create a filtered download link for this file.')
+    return data.signedUrl
   })
 }
 

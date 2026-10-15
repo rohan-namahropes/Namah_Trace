@@ -5,16 +5,15 @@ import {
   CheckCircle2,
   Cpu,
   Download,
-  ExternalLink,
   FileText,
   FlaskConical,
-  GitBranch,
   History,
   Layers,
   Paperclip,
   Pencil,
   Wrench,
 } from 'lucide-react'
+import { GenealogyTree } from './GenealogyTree'
 
 const typeLabels = {
   flat_yarn: 'Flat Yarn',
@@ -69,6 +68,8 @@ export function EntityDetail({
   onOpenAddTestModal,
   onOpenAddProcessModal,
   onOpenUploadEvidenceModal,
+  onDownloadEvidence,
+  onAttachEvidence,
   onDeleteParam,
   onDeleteTest,
   onUpdateStatus,
@@ -80,6 +81,7 @@ export function EntityDetail({
     grandparents: [],
     children: [],
     grandchildren: [],
+    treeEdges: [],
   }
   const parameters = entity.parameters || []
   const tests = entity.tests || []
@@ -90,6 +92,7 @@ export function EntityDetail({
   const entries = [
     ...processes.map((item) => ({
       id: `process-${item.id}`,
+      recordId: item.id,
       type: 'Process',
       className: 'process',
       icon: <Wrench size={15} />,
@@ -98,6 +101,7 @@ export function EntityDetail({
       detail: item.specification,
       remarks: item.remarks,
       actor: item.performed_by_name,
+      evidenceTarget: 'process',
     })),
     ...parameters.map((item) => ({
       id: `parameter-${item.id}`,
@@ -109,6 +113,7 @@ export function EntityDetail({
       timestamp: item.created_at,
       detail: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
       remarks: item.remarks,
+      evidenceTarget: 'parameter',
     })),
     ...tests.map((item) => ({
       id: `test-${item.id}`,
@@ -118,18 +123,26 @@ export function EntityDetail({
       icon: <CheckCircle2 size={15} />,
       title: item.test_name,
       timestamp: item.tested_at || item.created_at,
-      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}`,
+      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
       remarks: item.remarks,
       actor: item.performed_by_name,
+      evidenceTarget: 'test',
     })),
     ...evidence.map((item) => ({
       id: `evidence-${item.id}`,
+      recordId: item.id,
       type: 'Evidence',
       className: 'evidence',
       icon: <Paperclip size={15} />,
       title: item.file_name,
       timestamp: item.created_at,
-      detail: item.storage_path,
+      detail: item.test_name
+        ? `Evidence for test: ${item.test_name}`
+        : item.parameter_name
+          ? `Evidence for parameter: ${item.parameter_name}`
+          : item.process_name
+            ? `Evidence for process: ${item.process_name}`
+            : item.mime_type || 'Batch-level document',
       actor: item.uploaded_by_name,
     })),
     ...(entity.notes ? [{
@@ -186,13 +199,9 @@ export function EntityDetail({
     setTimeout(() => printWindow.print(), 250)
   }
 
-  const genealogyCount = genealogy.parents.length + genealogy.children.length
   const quantityDisplay = entity.quantity == null
     ? 'Unspecified'
     : `${entity.quantity} ${entity.unit || ''}`.trim()
-  const formatQuantity = (value, unit) => (
-    value == null ? 'Unknown' : `${value} ${unit || ''}`.trim()
-  )
 
   return (
     <div className="page detail-page">
@@ -230,6 +239,8 @@ export function EntityDetail({
         </div>
       </header>
 
+      <div className="detail-workspace-layout">
+        <div className="detail-records-column">
       <section className="detail-basic-section" aria-labelledby="basic-heading">
         <div className="detail-section-heading">
           <div>
@@ -240,6 +251,15 @@ export function EntityDetail({
         <div className="detail-basic-grid">
           {entity.supplier && <div><span>Supplier</span><strong>{entity.supplier}</strong></div>}
           {entity.treatment && <div><span>Treatment</span><strong>{entity.treatment}</strong></div>}
+          {entity.type === 'yarn' && entity.wastage_percentage != null && (
+            <div><span>Wastage estimate</span><strong>{entity.wastage_percentage}%</strong></div>
+          )}
+          {entity.type === 'yarn' && entity.estimated_output_quantity != null && (
+            <div>
+              <span>Estimated output</span>
+              <strong>{entity.estimated_output_quantity} {entity.unit || ''}</strong>
+            </div>
+          )}
           <div><span>Created</span><strong>{formatDateTime(entity.created_at)}</strong></div>
           <div><span>Recorded by</span><strong>{entity.created_by_name || '—'}</strong></div>
           {entity.quantity != null && (
@@ -254,76 +274,29 @@ export function EntityDetail({
               </div>
             </>
           )}
+          {entity.type === 'flat_yarn' && entity.critical_quantity_threshold != null && (
+            <div>
+              <span>Critical threshold</span>
+              <strong>
+                {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit || entity.unit || 'kg'}
+                {entity.lowStock
+                  ? ' · Below threshold'
+                  : entity.thresholdUnitProblem
+                    ? ' · Alert disabled: check threshold and stock units'
+                    : !entity.consumptionKnown
+                      ? ' · Alert unavailable: remaining quantity is unknown'
+                    : ''}
+              </strong>
+            </div>
+          )}
+          {entity.type === 'flat_yarn' && isAdmin && entity.critical_quantity_threshold == null && (
+            <div>
+              <span>Critical threshold</span>
+              <strong>Not set · configure with Edit</strong>
+            </div>
+          )}
         </div>
       </section>
-
-      <details className="detail-genealogy">
-        <summary>
-          <span className="genealogy-summary-title"><GitBranch size={16} /> Genealogy</span>
-          <span className="genealogy-summary-meta">
-            {genealogyCount ? `${genealogy.parents.length} parent · ${genealogy.children.length} child` : 'No direct links'}
-          </span>
-        </summary>
-        <div className="genealogy-compact-content">
-          {genealogy.parents.length > 0 && (
-            <div className="genealogy-compact-group">
-              <span className="compact-group-label">Input from</span>
-              <div className="genealogy-link-list">
-                {genealogy.parents.map((parent) => (
-                  <button className="genealogy-link-row" key={parent.linkId} onClick={() => onNavigateEntity(parent.entityId)}>
-                    <span className="genealogy-link-entity">{typeIcon(parent.type, 14)} {parent.batchId}</span>
-                    <span className="genealogy-link-quantities">
-                      <span><small>Used here</small><strong>{formatQuantity(parent.quantityUsed, parent.unit)}</strong></span>
-                      <span><small>Parent left</small><strong>{parent.remainingKnown ? formatQuantity(parent.quantityRemaining, parent.quantityUnit) : 'Unknown'}</strong></span>
-                    </span>
-                    <ExternalLink size={13} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {genealogy.children.length > 0 && (
-            <div className="genealogy-compact-group">
-              <span className="compact-group-label">Supplied to</span>
-              <div className="genealogy-link-list">
-                {genealogy.children.map((child) => (
-                  <button className="genealogy-link-row" key={child.linkId} onClick={() => onNavigateEntity(child.entityId)}>
-                    <span className="genealogy-link-entity">{typeIcon(child.type, 14)} {child.batchId}</span>
-                    <span className="genealogy-link-quantities">
-                      <span><small>Used by child</small><strong>{formatQuantity(child.quantityUsed, child.unit)}</strong></span>
-                      <span><small>Child left</small><strong>{child.remainingKnown ? formatQuantity(child.quantityRemaining, child.quantityUnit) : 'Unknown'}</strong></span>
-                    </span>
-                    <ExternalLink size={13} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {genealogy.grandparents?.length > 0 && (
-            <div className="genealogy-related-links">
-              <span>Original Flat Yarn</span>
-              {genealogy.grandparents.map((ancestor) => (
-                <button key={ancestor.entityId} onClick={() => onNavigateEntity(ancestor.entityId)}>
-                  {ancestor.batchId}
-                </button>
-              ))}
-            </div>
-          )}
-          {genealogy.grandchildren?.length > 0 && (
-            <div className="genealogy-related-links">
-              <span>Downstream Rope</span>
-              {genealogy.grandchildren.map((descendant) => (
-                <button key={descendant.entityId} onClick={() => onNavigateEntity(descendant.entityId)}>
-                  {descendant.batchId}
-                </button>
-              ))}
-            </div>
-          )}
-          {genealogyCount === 0 && !genealogy.grandparents?.length && !genealogy.grandchildren?.length && (
-            <p className="detail-muted">No genealogy links recorded.</p>
-          )}
-        </div>
-      </details>
 
       <section className="detail-lifecycle">
         <div className="detail-section-heading lifecycle-heading">
@@ -350,16 +323,29 @@ export function EntityDetail({
                     <time>{formatDateTime(entry.timestamp)}</time>
                   </div>
                   <h3>{entry.title}</h3>
-                  {entry.detail && entry.className !== 'evidence' && (
+                  {entry.detail && (
                     <p className="timeline-entry-detail">{entry.detail}</p>
                   )}
-                  {entry.className === 'evidence' && entry.detail && (
-                    <a className="timeline-evidence-link" href={entry.detail} target="_blank" rel="noreferrer" download={entry.title}>
+                  {entry.className === 'evidence' && (
+                    <button
+                      type="button"
+                      className="timeline-evidence-link"
+                      onClick={() => onDownloadEvidence?.(entry.recordId)}
+                    >
                       <Download size={13} /> Download evidence
-                    </a>
+                    </button>
                   )}
                   {entry.remarks && <p className="timeline-entry-remarks">{entry.remarks}</p>}
                   {entry.actor && <span className="timeline-entry-actor">{entry.actor}</span>}
+                  {entry.evidenceTarget && (
+                    <button
+                      type="button"
+                      className="timeline-evidence-link"
+                      onClick={() => onAttachEvidence?.(entry.evidenceTarget, entry.recordId)}
+                    >
+                      <Paperclip size={13} /> Attach evidence
+                    </button>
+                  )}
                   {isAdmin && entry.className === 'parameter' && (
                     <button
                       className="timeline-delete-action"
@@ -384,6 +370,19 @@ export function EntityDetail({
           <p className="detail-empty-state">No lifecycle records have been added.</p>
         )}
       </section>
+        </div>
+
+        <aside className="detail-genealogy-panel" aria-labelledby="genealogy-heading">
+          <header>
+            <h2 id="genealogy-heading">Genealogy</h2>
+          </header>
+          <GenealogyTree
+            entityId={entity.id}
+            edges={genealogy.treeEdges}
+            onNavigateEntity={onNavigateEntity}
+          />
+        </aside>
+      </div>
 
       <details className="detail-history">
         <summary><History size={15} /> View History <span>{auditLogs.length}</span></summary>

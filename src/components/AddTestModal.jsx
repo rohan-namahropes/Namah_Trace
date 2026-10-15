@@ -1,23 +1,31 @@
 import React, { useState } from 'react'
 import { X, AlertCircle } from 'lucide-react'
+import { EvidenceFileInput, getEvidenceFileError } from './EvidenceFileInput'
 
-const TEST_PRESETS = [
-  'Tensile Breakdown Test',
-  'Twist Uniformity Test',
-  'Static Breaking Load',
-  'Dynamic Drop Test (UIAA)',
-  'Boiling Water Shrinkage Test',
-  'Elongation Test',
-  'Sheath Slippage Test',
-  'Visual Defect Inspection',
-]
+const TEST_PRESETS = {
+  flat_yarn: ['Breaking Strength', 'Elongation', 'Denier', 'BWS', 'HAS', 'Incoming Inspection'],
+  yarn: ['Breaking Strength', 'Elongation', 'Denier', 'TPM', 'Twist Uniformity', 'BWS', 'HAS'],
+  rope: [
+    'Breaking Strength',
+    'Elongation',
+    'Impact Force',
+    'Fall Factor / Dynamic Performance',
+    'Sheath Slippage',
+    'Abrasion Resistance',
+    'Visual Defect Inspection',
+  ],
+}
 
-export function AddTestModal({ onClose, onSave }) {
+export function AddTestModal({ entityType, onClose, onSave, processes = [] }) {
   const [testName, setTestName] = useState('')
   const [value, setValue] = useState('')
   const [unit, setUnit] = useState('')
+  const [productCategory, setProductCategory] = useState('')
+  const [applicableStandard, setApplicableStandard] = useState('')
   const [result, setResult] = useState('Pass')
   const [remarks, setRemarks] = useState('')
+  const [processId, setProcessId] = useState('')
+  const [evidenceFile, setEvidenceFile] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -35,17 +43,29 @@ export function AddTestModal({ onClose, onSave }) {
     setBusy(true)
     setError('')
     try {
+      if (evidenceFile) {
+        const fileError = getEvidenceFileError(evidenceFile)
+        if (fileError) throw new Error(fileError)
+      }
       const savedTest = await onSave({
         testName: testName.trim(),
         value: value.trim(),
         unit: unit.trim(),
+        productCategory: productCategory.trim(),
+        applicableStandard: applicableStandard.trim(),
         result,
         remarks: remarks.trim(),
+        processId: processId || null,
+        evidenceFile,
       })
       if (savedTest?.error) throw savedTest.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save test record')
+      if (err.recordSaved) {
+        onClose()
+        return
+      }
       setBusy(false)
     }
   }
@@ -69,7 +89,7 @@ export function AddTestModal({ onClose, onSave }) {
         <div className="preset-chips-section">
           <small className="preset-label">TEST TEMPLATES:</small>
           <div className="preset-chips-list">
-            {TEST_PRESETS.map((t) => (
+            {(TEST_PRESETS[entityType] || []).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -134,6 +154,50 @@ export function AddTestModal({ onClose, onSave }) {
             </label>
           </div>
 
+          <div className="form-grid-2">
+            <label className="form-field">
+              <span>Applicable standard (Optional)</span>
+              <input
+                type="text"
+                placeholder="e.g. standard name / edition / clause"
+                value={applicableStandard}
+                onChange={(e) => setApplicableStandard(e.target.value)}
+              />
+              <small className="field-hint">Record the standard that applies to this product and test; applicability is not assumed.</small>
+            </label>
+            {entityType === 'rope' && (
+              <label className="form-field">
+                <span>Rope category (Optional)</span>
+                <input
+                  type="text"
+                  placeholder="e.g. single, half, twin, low-stretch, or factory category"
+                  value={productCategory}
+                  onChange={(e) => setProductCategory(e.target.value)}
+                />
+                <small className="field-hint">
+                  Confirm applicability for the product category.{' '}
+                  <a href="https://www.theuiaa.org/safety/safety-standards/" target="_blank" rel="noreferrer">
+                    Official UIAA safety standards
+                  </a>
+                </small>
+              </label>
+            )}
+          </div>
+
+          {processes.length > 0 && (
+            <label className="form-field">
+              <span>Associated Process (Optional)</span>
+              <select value={processId} onChange={(e) => setProcessId(e.target.value)}>
+                <option value="">-- Standalone test / no process linked --</option>
+                {processes.map((process) => (
+                  <option key={process.id} value={process.id}>
+                    {process.process_name} {process.specification ? `· ${process.specification}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <label className="form-field">
             <span>Remarks / Sample Location</span>
             <textarea
@@ -143,6 +207,8 @@ export function AddTestModal({ onClose, onSave }) {
               onChange={(e) => setRemarks(e.target.value)}
             />
           </label>
+
+          <EvidenceFileInput file={evidenceFile} onChange={setEvidenceFile} id="test-evidence-file" />
 
           <div className="modal-actions">
             <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>

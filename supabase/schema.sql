@@ -50,7 +50,23 @@ create table if not exists public.entities (
   supplier text,             -- Especially for Flat Yarn (e.g. 'ABC')
   treatment text,            -- Especially for Yarn (e.g. 'Twisting @ 1600 TPM')
   quantity numeric,          -- Optional portion/quantity
+  estimated_output_quantity numeric check (
+    estimated_output_quantity is null
+    or (
+      estimated_output_quantity >= 0
+      and estimated_output_quantity::text not in ('NaN', 'Infinity', '-Infinity')
+    )
+  ),
+  wastage_percentage numeric check (
+    wastage_percentage is null
+    or (
+      wastage_percentage between 0 and 100
+      and wastage_percentage::text not in ('NaN', 'Infinity', '-Infinity')
+    )
+  ),
   unit text,                 -- e.g. 'kg', 'm', 'coils'
+  critical_quantity_threshold numeric,
+  critical_quantity_threshold_unit text,
   status text check (status in ('In Progress', 'Completed')),
   notes text,                -- Remarks / initial observations
   created_by uuid references public.profiles(id) on delete set null,
@@ -62,6 +78,25 @@ create index if not exists idx_entities_batch_id on public.entities(batch_id);
 create index if not exists idx_entities_type on public.entities(type);
 create index if not exists idx_entities_status on public.entities(status);
 create index if not exists idx_entities_created_at on public.entities(created_at desc);
+
+create table if not exists public.yarn_configurations (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null unique,
+  suffix text not null,
+  twisting_denier text not null,
+  plying_configuration text not null default '',
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (nullif(btrim(name), '') is not null),
+  check (suffix ~ '^[A-Za-z0-9][A-Za-z0-9_-]*$'),
+  check (nullif(btrim(twisting_denier), '') is not null)
+);
+
+grant select, insert, update, delete on public.yarn_configurations to authenticated;
+
+create index if not exists idx_yarn_configurations_name
+  on public.yarn_configurations(name);
 
 -- ------------------------------------------------------------------------------
 -- 3. ENTITY GENEALOGY (Parent-Child Directed Graph)
@@ -99,25 +134,7 @@ create table if not exists public.entity_parameters (
 create index if not exists idx_params_entity on public.entity_parameters(entity_id);
 
 -- ------------------------------------------------------------------------------
--- 5. TESTS & QC OBSERVATIONS
--- ------------------------------------------------------------------------------
-create table if not exists public.entity_tests (
-  id uuid primary key default uuid_generate_v4(),
-  entity_id uuid not null references public.entities(id) on delete cascade,
-  test_name text not null,
-  value text not null,
-  unit text,
-  remarks text,
-  result text default 'Pass',
-  performed_by uuid references public.profiles(id) on delete set null,
-  tested_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_tests_entity on public.entity_tests(entity_id);
-
--- ------------------------------------------------------------------------------
--- 6. PROCESS & LIFECYCLE RECORDS
+-- 5. PROCESS & LIFECYCLE RECORDS
 -- ------------------------------------------------------------------------------
 -- Chronological processes: Heat Setting, Knitting, Twisting, Braiding, Dyeing, etc.
 create table if not exists public.entity_processes (
@@ -134,21 +151,114 @@ create table if not exists public.entity_processes (
 create index if not exists idx_processes_entity on public.entity_processes(entity_id);
 
 -- ------------------------------------------------------------------------------
+-- 6. TESTS & QC OBSERVATIONS
+-- ------------------------------------------------------------------------------
+create table if not exists public.entity_tests (
+  id uuid primary key default uuid_generate_v4(),
+  entity_id uuid not null references public.entities(id) on delete cascade,
+  process_id uuid references public.entity_processes(id) on delete set null,
+  test_name text not null,
+  value text not null,
+  unit text,
+  product_category text,
+  applicable_standard text,
+  remarks text,
+  result text default 'Pass',
+  performed_by uuid references public.profiles(id) on delete set null,
+  tested_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_tests_entity on public.entity_tests(entity_id);
+create index if not exists idx_tests_process on public.entity_tests(process_id);
+
+create or replace function public.validate_test_process_link()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.process_id is not null and not exists (
+    select 1 from public.entity_processes p
+    where p.id = new.process_id and p.entity_id = new.entity_id
+  ) then
+    raise exception 'Test process must belong to the same batch.';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.validate_test_process_link()
+  from public, anon, authenticated;
+
+drop trigger if exists validate_test_process_link on public.entity_tests;
+create trigger validate_test_process_link
+before insert or update of entity_id, process_id
+on public.entity_tests
+for each row execute function public.validate_test_process_link();
+
+-- ------------------------------------------------------------------------------
 -- 7. EVIDENCE & ATTACHMENTS
 -- ------------------------------------------------------------------------------
 create table if not exists public.entity_evidence (
   id uuid primary key default uuid_generate_v4(),
   entity_id uuid not null references public.entities(id) on delete cascade,
   process_id uuid references public.entity_processes(id) on delete set null,
+  parameter_id uuid references public.entity_parameters(id) on delete set null,
+  test_id uuid references public.entity_tests(id) on delete set null,
   file_name text not null,
   storage_path text not null,
   mime_type text,
   file_size bigint,
   uploaded_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  check (num_nonnulls(process_id, parameter_id, test_id) <= 1)
 );
 
 create index if not exists idx_evidence_entity on public.entity_evidence(entity_id);
+create index if not exists idx_evidence_parameter on public.entity_evidence(parameter_id);
+create index if not exists idx_evidence_test on public.entity_evidence(test_id);
+
+create or replace function public.validate_evidence_record_links()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.process_id is not null and not exists (
+    select 1 from public.entity_processes p
+    where p.id = new.process_id and p.entity_id = new.entity_id
+  ) then
+    raise exception 'Evidence process must belong to the same batch.';
+  end if;
+
+  if new.parameter_id is not null and not exists (
+    select 1 from public.entity_parameters p
+    where p.id = new.parameter_id and p.entity_id = new.entity_id
+  ) then
+    raise exception 'Evidence parameter must belong to the same batch.';
+  end if;
+
+  if new.test_id is not null and not exists (
+    select 1 from public.entity_tests t
+    where t.id = new.test_id and t.entity_id = new.entity_id
+  ) then
+    raise exception 'Evidence test must belong to the same batch.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.validate_evidence_record_links() from public, anon, authenticated;
+
+drop trigger if exists validate_evidence_record_links on public.entity_evidence;
+create trigger validate_evidence_record_links
+before insert or update of entity_id, process_id, parameter_id, test_id
+on public.entity_evidence
+for each row execute function public.validate_evidence_record_links();
 
 -- ------------------------------------------------------------------------------
 -- 8. AUDIT HISTORY
@@ -207,6 +317,50 @@ $$;
 revoke all on function public.current_user_has_operational_access() from public, anon;
 grant execute on function public.current_user_has_operational_access() to authenticated;
 
+create or replace function public.guard_critical_stock_threshold()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if auth.uid() is not null
+     and not public.current_user_is_admin()
+     and (
+       new.critical_quantity_threshold is distinct from old.critical_quantity_threshold
+       or new.critical_quantity_threshold_unit is distinct from old.critical_quantity_threshold_unit
+     ) then
+    raise exception 'Only an Admin may change a critical stock threshold.';
+  end if;
+
+  if new.critical_quantity_threshold is not null and (
+    new.critical_quantity_threshold < 0
+    or new.critical_quantity_threshold::text in ('NaN', 'Infinity', '-Infinity')
+  ) then
+    raise exception 'Critical stock threshold must be finite and non-negative.';
+  end if;
+
+  if new.critical_quantity_threshold is not null
+     and (
+       nullif(btrim(new.unit), '') is null
+       or nullif(btrim(new.critical_quantity_threshold_unit), '') is null
+       or new.unit is distinct from new.critical_quantity_threshold_unit
+     ) then
+    raise exception 'Critical stock threshold unit must match the batch stock unit.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.guard_critical_stock_threshold()
+  from public, anon, authenticated;
+
+drop trigger if exists guard_critical_stock_threshold on public.entities;
+create trigger guard_critical_stock_threshold
+before insert or update of unit, critical_quantity_threshold, critical_quantity_threshold_unit
+on public.entities
+for each row execute function public.guard_critical_stock_threshold();
+
 create or replace function public.enforce_authenticated_actor()
 returns trigger
 language plpgsql
@@ -258,6 +412,11 @@ create trigger audit_authenticated_actor
 before insert or update on public.entity_audit_logs
 for each row execute function public.enforce_authenticated_actor('performed_by');
 
+drop trigger if exists yarn_configurations_authenticated_actor on public.yarn_configurations;
+create trigger yarn_configurations_authenticated_actor
+before insert or update on public.yarn_configurations
+for each row execute function public.enforce_authenticated_actor('created_by');
+
 -- ------------------------------------------------------------------------------
 -- 10. ROW LEVEL SECURITY (RLS) POLICIES
 -- ------------------------------------------------------------------------------
@@ -269,6 +428,7 @@ alter table public.entity_tests enable row level security;
 alter table public.entity_processes enable row level security;
 alter table public.entity_evidence enable row level security;
 alter table public.entity_audit_logs enable row level security;
+alter table public.yarn_configurations enable row level security;
 
 -- Replace the earlier broad authenticated-user policies safely.
 drop policy if exists "Authenticated users can read profiles" on public.profiles;
@@ -310,6 +470,11 @@ drop policy if exists "Authenticated users can update processes" on public.entit
 drop policy if exists "Admins can delete processes" on public.entity_processes;
 drop policy if exists "Admins can manage processes" on public.entity_processes;
 drop policy if exists "Admins can manage audit logs" on public.entity_audit_logs;
+drop policy if exists "Operational users can read Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Operational users can create Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Operational users can update Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Admins can delete Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Admins can manage Yarn configurations" on public.yarn_configurations;
 drop policy if exists "Authenticated users can read evidence metadata" on public.entity_evidence;
 drop policy if exists "Authenticated users can create evidence metadata" on public.entity_evidence;
 drop policy if exists "Authenticated users can update evidence metadata" on public.entity_evidence;
@@ -442,10 +607,45 @@ create policy "Admins can manage audit logs"
   using (public.current_user_is_admin())
   with check (public.current_user_is_admin());
 
+create policy "Operational users can read Yarn configurations"
+  on public.yarn_configurations for select to authenticated
+  using (public.current_user_has_operational_access());
+create policy "Operational users can create Yarn configurations"
+  on public.yarn_configurations for insert to authenticated
+  with check (public.current_user_has_operational_access());
+create policy "Operational users can update Yarn configurations"
+  on public.yarn_configurations for update to authenticated
+  using (public.current_user_has_operational_access())
+  with check (public.current_user_has_operational_access());
+create policy "Admins can delete Yarn configurations"
+  on public.yarn_configurations for delete to authenticated
+  using (public.current_user_is_admin());
+create policy "Admins can manage Yarn configurations"
+  on public.yarn_configurations for all to authenticated
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
+
 -- Storage bucket
-insert into storage.buckets (id, name, public)
-values ('evidence', 'evidence', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'evidence',
+  'evidence',
+  false,
+  26214400,
+  array[
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'video/mp4',
+    'video/quicktime',
+    'video/webm'
+  ]
+)
+on conflict (id) do update set
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 drop policy if exists "Authenticated users can access evidence" on storage.objects;
 create policy "Authenticated users can read evidence files"
   on storage.objects for select to authenticated

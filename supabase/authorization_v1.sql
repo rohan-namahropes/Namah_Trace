@@ -125,6 +125,11 @@ create trigger audit_authenticated_actor
 before insert or update on public.entity_audit_logs
 for each row execute function public.enforce_authenticated_actor('performed_by');
 
+drop trigger if exists yarn_configurations_authenticated_actor on public.yarn_configurations;
+create trigger yarn_configurations_authenticated_actor
+before insert or update on public.yarn_configurations
+for each row execute function public.enforce_authenticated_actor('created_by');
+
 -- RLS must be enabled for role policies to enforce these permissions.
 alter table public.profiles enable row level security;
 alter table public.entities enable row level security;
@@ -134,6 +139,10 @@ alter table public.entity_tests enable row level security;
 alter table public.entity_processes enable row level security;
 alter table public.entity_evidence enable row level security;
 alter table public.entity_audit_logs enable row level security;
+alter table public.yarn_configurations enable row level security;
+
+grant select, insert, update, delete
+  on public.yarn_configurations to authenticated;
 
 -- Remove the former broad authenticated-user policies.
 drop policy if exists "Authenticated users can read profiles" on public.profiles;
@@ -175,6 +184,11 @@ drop policy if exists "Authenticated users can update processes" on public.entit
 drop policy if exists "Admins can delete processes" on public.entity_processes;
 drop policy if exists "Admins can manage processes" on public.entity_processes;
 drop policy if exists "Admins can manage audit logs" on public.entity_audit_logs;
+drop policy if exists "Operational users can read Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Operational users can create Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Operational users can update Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Admins can delete Yarn configurations" on public.yarn_configurations;
+drop policy if exists "Admins can manage Yarn configurations" on public.yarn_configurations;
 drop policy if exists "Authenticated users can read evidence metadata" on public.entity_evidence;
 drop policy if exists "Authenticated users can create evidence metadata" on public.entity_evidence;
 drop policy if exists "Authenticated users can update evidence metadata" on public.entity_evidence;
@@ -316,11 +330,46 @@ create policy "Admins can manage audit logs"
   using (public.current_user_is_admin())
   with check (public.current_user_is_admin());
 
+create policy "Operational users can read Yarn configurations"
+  on public.yarn_configurations for select to authenticated
+  using (public.current_user_has_operational_access());
+create policy "Operational users can create Yarn configurations"
+  on public.yarn_configurations for insert to authenticated
+  with check (public.current_user_has_operational_access());
+create policy "Operational users can update Yarn configurations"
+  on public.yarn_configurations for update to authenticated
+  using (public.current_user_has_operational_access())
+  with check (public.current_user_has_operational_access());
+create policy "Admins can delete Yarn configurations"
+  on public.yarn_configurations for delete to authenticated
+  using (public.current_user_is_admin());
+create policy "Admins can manage Yarn configurations"
+  on public.yarn_configurations for all to authenticated
+  using (public.current_user_is_admin())
+  with check (public.current_user_is_admin());
+
 -- Keep evidence private and permit operational users to read/upload/update;
 -- only Admins may delete stored evidence objects.
-insert into storage.buckets (id, name, public)
-values ('evidence', 'evidence', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'evidence',
+  'evidence',
+  false,
+  26214400,
+  array[
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'video/mp4',
+    'video/quicktime',
+    'video/webm'
+  ]
+)
+on conflict (id) do update set
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 create policy "Authenticated users can read evidence files"
   on storage.objects for select to authenticated

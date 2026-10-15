@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Namah Trace — Brag</title>
+  <meta
+    name="hyperframes"
+    content="version=1; width=1280; height=720; duration=20; fps=30;"
+  />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <style>
+    :root {
+      --navy:         #004282;
+      --navy-dark:    #002d5a;
+      --navy-deep:    #001e3d;
+      --orange:       #f96c30;
+      --amber:        #b46b10;
+      --amber-bg:     #fdf6ed;
+      --amber-border: #f3d7b4;
+      --blue-tier:    #026aa7;
+      --blue-bg:      #edf6fd;
+      --blue-border:  #bce0fd;
+      --navy-bg:      #eaf1f8;
+      --navy-border:  #b5d1ec;
+      --green-text:   #166534;
+      --green-bg:     #dcfce7;
+      --green-dot:    #15803d;
+      --bg-page:      #f8fafc;
+      --bg-card:      #ffffff;
+      --border:       #e2e8f0;
+      --border-med:   #cbd5e1;
+      --text-main:    #0f172a;
+      --text-muted:   #64748b;
+      --text-subtle:  #94a3b8;
+      --white:        #ffffff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background: var(--bg-page);
+      font-family: 'DM Sans', -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #stage {
+      position: relative;
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+    }
+
+    .scene {
+      position: absolute;
+      inset: 0;
+      width: 1280px;
+      height: 720px;
+      
+      pointer-events: none;
+    }
+
+    /* SCENE 1 - HOOK */
+    #scene-hook {
+      background: var(--navy-deep);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    #scene-hook::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 900px 500px at 50% 50%, rgba(0,66,130,0.4) 0%, rgba(0,30,61,0) 70%);
+      pointer-events: none;
+    }
+    .hook-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      color: rgba(255,255,255,0.60);
+      text-transform: uppercase;
+      opacity: 0;
+      position: relative;
+    }
+    .hook-headline {
+      font-size: 62px;
+      font-weight: 700;
+      color: var(--white);
+      text-align: center;
+      line-height: 1.12;
+      letter-spacing: -0.02em;
+      position: relative;
+      min-height: 80px;
+    }
+    .typed-cursor {
+      display: inline-block;
+      width: 3px;
+      height: 0.82em;
+      background: var(--orange);
+      margin-left: 3px;
+      vertical-align: middle;
+      border-radius: 1px;
+    }
+
+    /* SCENE 2 - DASHBOARD */
+    #scene-dashboard { background: var(--bg-page); }
+    .db-inner {
+      display: flex;
+      flex-direction: column;
+      padding: 52px 72px 40px;
+    }
+    .db-eyebrow {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      opacity: 0;
+    }
+    .db-h1 {
+      font-size: 46px;
+      font-weight: 700;
+      color: var(--navy);
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      margin-bottom: 10px;
+      opacity: 0;
+    }
+    .db-h1 span {
+      position: relative;
+    }
+    .db-subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 540px;
+      margin-bottom: 36px;
+      opacity: 0;
+    }
+    .metrics-row {
+      display: flex;
+      gap: 20px;
+    }
+    .metric-card {
+      flex: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px 24px 18px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      opacity: 0;
+      transform: translateY(22px);
+      position: relative;
+      overflow: hidden;
+    }
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+      border-radius: 10px 0 0 10px;
+    }
+    .metric-card.amber::before { background: var(--amber); }
+    .metric-card.blue::before  { background: var(--blue-tier); }
+    .metric-card.navy::before  { background: var(--navy); }
+    .mc-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .mc-label.amber { color: var(--amber); }
+    .mc-label.blue  { color: var(--blue-tier); }
+    .mc-label.navy  { color: var(--navy); }
+    .mc-number {
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .mc-number.amber { color: var(--amber); }
+    .mc-number.blue  { color: var(--blue-tier); }
+    .mc-number.navy  { color: var(--navy); }
+    .mc-unit { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    .mc-caption { font-size: 11px; color: var(--text-subtle); margin-top: 10px; }
+
+    /* SCENE 3 - DETAIL */
+    #scene-detail { background: var(--bg-page); display: flex; }
+    .detail-sidebar {
+      width: 68px;
+      background: var(--navy-deep);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 24px;
+      gap: 22px;
+      flex-shrink: 0;
+    }
+    .sidebar-dot {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.10);
+    }
+    .sidebar-dot.active { background: rgba(255,255,255,0.22); }
+    .detail-main { flex: 1; padding: 40px 56px; display: flex; flex-direction: column; }
+    .detail-panel { opacity: 0; transform: translateX(28px); }
+    .breadcrumb {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11.5px; color: var(--text-muted); margin-bottom: 22px;
+    }
+    .breadcrumb span { color: var(--text-muted); }
+    .breadcrumb strong { color: var(--navy); }
+    .batch-header { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+    .batch-id-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 15px; font-weight: 500;
+      background: var(--navy); color: var(--white);
+      padding: 6px 14px; border-radius: 6px; letter-spacing: 0.04em;
+    }
+    .status-pill {
+      font-size: 11.5px; font-weight: 600;
+      color: var(--green-text); background: var(--green-bg);
+      border-radius: 20px; padding: 4px 12px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .status-pill::before {
+      content: ''; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--green-dot);
+    }
+    .detail-meta-row { display: flex; gap: 32px; margin-bottom: 28px; }
+    .meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .meta-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.10em; }
+    .meta-value { font-size: 14px; font-weight: 600; color: var(--text-main); }
+    .section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; }
+    .params-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .param-chip {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 16px;
+      opacity: 0; transform: translateY(8px);
+    }
+    .param-chip-label { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 3px; }
+    .param-chip-value { font-size: 16px; font-weight: 700; color: var(--navy); font-family: 'DM Mono', monospace; }
+    .source-chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--blue-bg); border: 1px solid var(--blue-border);
+      color: var(--blue-tier); border-radius: 6px;
+      padding: 7px 14px; font-size: 12.5px; font-weight: 600;
+      font-family: 'DM Mono', monospace; opacity: 0;
+    }
+    .sim-cursor {
+      position: absolute;
+      width: 20px; height: 20px;
+      opacity: 0; pointer-events: none;
+      z-index: 100; top: 180px; left: 320px;
+    }
+
+    /* SCENE 4 - AUDIT */
+    #scene-audit { background: var(--bg-page); padding: 52px 120px; display: flex; flex-direction: column; }
+    .audit-section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--navy); margin-bottom: 8px; opacity: 0; }
+    .audit-divider { width: 100%; height: 1px; background: var(--border); margin-bottom: 20px; opacity: 0; }
+    .audit-row {
+      display: flex; align-items: flex-start; gap: 16px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px 20px; margin-bottom: 10px;
+      opacity: 0; transform: translateY(14px);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .audit-icon {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: var(--navy-bg);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .audit-body { flex: 1; }
+    .audit-action { font-size: 13.5px; font-weight: 600; color: var(--text-main); margin-bottom: 3px; }
+    .audit-entity { font-size: 12px; color: var(--text-muted); }
+    .audit-entity strong { font-family: 'DM Mono', monospace; color: var(--navy); font-size: 11.5px; }
+    .audit-meta { text-align: right; flex-shrink: 0; }
+    .audit-time { font-size: 11px; color: var(--text-subtle); display: block; margin-bottom: 4px; }
+    .audit-actor { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+    .audit-badge {
+      display: inline-block; font-size: 9px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      border-radius: 4px; padding: 2px 8px; margin-right: 8px;
+    }
+    .audit-badge.created { background: var(--navy-bg); color: var(--navy); }
+    .audit-badge.updated { background: var(--amber-bg); color: var(--amber); }
+
+    /* SCENE 5 - OUTRO */
+    #scene-outro {
+      background: var(--navy-deep);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; position: relative;
+    }
+    #scene-outro::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse 800px 400px at 50% 50%, rgba(0,66,130,0.5) 0%, rgba(0,20,50,0) 70%);
+      pointer-events: none;
+    }
+    .outro-brand { font-size: 72px; font-weight: 700; color: var(--white); letter-spacing: -0.03em; opacity: 0; transform: scale(0.94); position: relative; }
+    .outro-sub { font-size: 18px; font-weight: 500; color: rgba(255,255,255,0.70); letter-spacing: 0.02em; opacity: 0; position: relative; }
+    .outro-tagline { font-size: 17px; font-weight: 500; color: rgba(255,255,255,0.85); letter-spacing: 0.01em; opacity: 0; transform: translateY(10px); margin-top: 8px; position: relative; }
+    .outro-tagline .arrow { color: var(--orange); font-weight: 700; }
+
+    .ar-glow {
+      position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 600px 300px at 50% 40%, rgba(249,108,48,0.0) 0%, rgba(0,0,0,0) 100%);
+    }
+    #transition-overlay {
+      position: absolute; inset: 0;
+      background: var(--navy-deep); opacity: 0; pointer-events: none; z-index: 200;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage" data-composition-id="namah-trace-brag" data-width="1280" data-height="720" data-layout-allow-overlap="true" data-layout-allow-occlusion="true">
+    
+    <!-- AUDIO -->
+    <audio id="bg-music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.30" src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"></audio>
+    <!-- SFX metric cards: beat-grid 6.00s, 6.56s, 7.09s -->
+    <audio id="sfx-card-1" data-start="6.00" data-duration="0.11" data-track-index="11" data-volume="0.70" src="assets/sfx/interface/drop_001.ogg"></audio>
+    <audio id="sfx-card-2" data-start="6.56" data-duration="0.11" data-track-index="12" data-volume="0.70" src="assets/sfx/interface/drop_001.ogg"></audio>
+    <audio id="sfx-card-3" data-start="7.09" data-duration="0.11" data-track-index="13" data-volume="0.70" src="assets/sfx/interface/drop_001.ogg"></audio>
+    <!-- SFX simulated click at scene 3 start -->
+    <audio id="sfx-click" data-start="7.70" data-duration="0.06" data-track-index="14" data-volume="0.60" src="assets/sfx/ui/mouseclick1.ogg"></audio>
+    <!-- SFX logo bell: beat-locked 17.47s -->
+    <audio id="sfx-bell" data-start="17.47" data-duration="1.48" data-track-index="15" data-volume="0.80" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+    <!-- SFX keypress sounds for typing (thinned) -->
+    <audio id="sfx-key-01" data-start="0.20" data-duration="0.3" data-track-index="20" data-volume="0.55" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+    <audio id="sfx-key-02" data-start="0.38" data-duration="0.3" data-track-index="21" data-volume="0.58" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+    <audio id="sfx-key-03" data-start="0.56" data-duration="0.3" data-track-index="22" data-volume="0.52" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+    <audio id="sfx-key-04" data-start="0.74" data-duration="0.3" data-track-index="23" data-volume="0.57" src="assets/sfx/keyboard/keypress-004.wav"></audio>
+    <audio id="sfx-key-05" data-start="0.92" data-duration="0.3" data-track-index="24" data-volume="0.53" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+    <audio id="sfx-key-06" data-start="1.10" data-duration="0.3" data-track-index="25" data-volume="0.56" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+    <audio id="sfx-key-07" data-start="1.28" data-duration="0.3" data-track-index="26" data-volume="0.54" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+
+    <div id="transition-overlay"></div>
+
+    <!-- SCENE 1: HOOK (0-3s) -->
+    <div id="scene-hook" class="scene clip" data-start="0" data-duration="3">
+      <div class="ar-glow" id="glow-hook"></div>
+      <p id="hook-eyebrow" class="hook-eyebrow clip" data-start="0.1" data-duration="2.9" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.5">NAMAH ROPES &middot; TRACEABILITY</p>
+      <h1 class="hook-headline" id="typed-headline">
+        <span id="typed-text"></span><span class="typed-cursor" id="cursor"></span>
+      </h1>
+    </div>
+
+    <!-- SCENE 2: DASHBOARD REVEAL (3-7.5s) -->
+    <div id="scene-dashboard" class="scene clip" data-start="3" data-duration="4.5">
+      <div class="ar-glow" id="glow-dashboard"></div>
+      <div class="db-inner">
+        <p id="db-eyebrow" class="db-eyebrow clip" data-start="3.1" data-duration="4.4" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.4">NAMAH TRACE &middot; INTERNAL MANUFACTURING WORKSPACE</p>
+        <h1 id="db-h1" class="db-h1 clip" data-start="3.3" data-duration="4.2" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.5"><span>Traceability Matrix</span></h1>
+        <p id="db-subtitle" class="db-subtitle clip" data-start="3.6" data-duration="3.9" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.45">Flat Yarn to Yarn Batch to Rope Batch. Every lot, parameter, and genealogical link recorded.</p>
+        <div class="metrics-row">
+          <!-- beat-grid: card 1 at 6.00s -->
+          <div id="mc-1" class="metric-card amber clip" data-start="6.00" data-duration="1.5" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.35">
+            <p class="mc-label amber">FLAT YARN BATCHES</p>
+            <span class="mc-number amber">06</span>
+            <p class="mc-unit">Raw sources</p>
+            <p class="mc-caption">Incoming supplier materials</p>
+          </div>
+          <!-- beat-grid: card 2 at 6.56s -->
+          <div id="mc-2" class="metric-card blue clip" data-start="6.56" data-duration="0.94" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.35">
+            <p class="mc-label blue">DERIVED YARN BATCHES</p>
+            <span class="mc-number blue">04</span>
+            <p class="mc-unit">Processed strands</p>
+            <p class="mc-caption">Twisted, spun &amp; heat-set lots</p>
+          </div>
+          <!-- beat-grid: card 3 at 7.09s -->
+          <div id="mc-3" class="metric-card navy clip" data-start="7.09" data-duration="0.41" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.35">
+            <p class="mc-label navy">FINISHED ROPE BATCHES</p>
+            <span class="mc-number navy">03</span>
+            <p class="mc-unit">Manufactured ropes</p>
+            <p class="mc-caption">Braided &amp; kernmantle output</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 3: BATCH DRILL-DOWN (7.5-12.5s) — beat-locked: 8.74s -->
+    <div id="scene-detail" class="scene clip" data-start="7.5" data-duration="5">
+      <div class="detail-sidebar">
+        <div class="sidebar-dot"></div>
+        <div class="sidebar-dot active"></div>
+        <div class="sidebar-dot"></div>
+        <div class="sidebar-dot"></div>
+      </div>
+      <div class="detail-main">
+        <!-- Slide-in at beat-locked 8.74s -->
+        <div id="detail-panel" class="detail-panel clip" data-start="8.74" data-duration="3.76" data-anim="fade-in-right" data-easing="ease-out" data-delay="0" data-duration-anim="0.45">
+          <div class="breadcrumb">
+            <span>Traceability</span><span>&rsaquo;</span>
+            <span>Rope Batches</span><span>&rsaquo;</span>
+            <strong>Batch 5417</strong>
+          </div>
+          <div class="batch-header">
+            <div class="batch-id-badge">5417</div>
+            <div class="status-pill">Completed</div>
+          </div>
+          <div class="detail-meta-row">
+            <div class="meta-item">
+              <span class="meta-label">Quantity</span>
+              <span class="meta-value">1,200 m</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Created</span>
+              <span class="meta-value">02 Sep 2025</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Type</span>
+              <span class="meta-value">Rope Batch</span>
+            </div>
+          </div>
+          <p class="section-label">Quality Parameters</p>
+          <div class="params-row">
+            <div id="p-chip-1" class="param-chip clip" data-start="9.50" data-duration="3.0" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.3">
+              <div class="param-chip-label">Tensile Strength</div>
+              <div class="param-chip-value">18 kN</div>
+            </div>
+            <div id="p-chip-2" class="param-chip clip" data-start="9.90" data-duration="2.6" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.3">
+              <div class="param-chip-label">Break Load</div>
+              <div class="param-chip-value">22 kN</div>
+            </div>
+          </div>
+          <p class="section-label">Source Yarn</p>
+          <div id="s-chip" class="source-chip clip" data-start="10.40" data-duration="2.1" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.35">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+            523 TA
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 4: AUDIT TRAIL (12.5-16s) — beat-locked: 13.11s -->
+    <div id="scene-audit" class="scene clip" data-start="12.5" data-duration="3.5">
+      <p id="audit-label" class="audit-section-label clip" data-start="12.55" data-duration="3.45" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.4">Audit Trail</p>
+      <div id="audit-div" class="audit-divider clip" data-start="12.65" data-duration="3.35" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.3"></div>
+      <!-- Row 1: beat-locked 13.11s -->
+      <div id="audit-r1" class="audit-row clip" data-start="13.11" data-duration="2.89" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.38">
+        <div class="audit-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#004282" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+        </div>
+        <div class="audit-body">
+          <div class="audit-action"><span class="audit-badge created">Created</span>Batch Created</div>
+          <div class="audit-entity">Rope Batch &middot; <strong>5417</strong></div>
+        </div>
+        <div class="audit-meta">
+          <span class="audit-time">02 Sep 2025, 09:14</span>
+          <span class="audit-actor">System</span>
+        </div>
+      </div>
+      <!-- Row 2: near beat 13.64s -->
+      <div id="audit-r2" class="audit-row clip" data-start="13.91" data-duration="2.09" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.38">
+        <div class="audit-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#004282" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </div>
+        <div class="audit-body">
+          <div class="audit-action"><span class="audit-badge updated">Updated</span>Status Updated</div>
+          <div class="audit-entity">In Progress <span style="color:var(--text-subtle)">&rarr;</span> Completed &middot; <strong>5417</strong></div>
+        </div>
+        <div class="audit-meta">
+          <span class="audit-time">15 Sep 2025, 14:32</span>
+          <span class="audit-actor">Rohan K.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 5: LOGO / OUTRO (16-20s) — beat-locked: 17.47s -->
+    <div id="scene-outro" class="scene clip" data-start="16" data-duration="4">
+      <div class="ar-glow" id="glow-outro"></div>
+      <h1 id="outro-brand" class="outro-brand clip" data-start="16.1" data-duration="3.9" data-anim="scale-in-fade" data-easing="ease-out" data-delay="0" data-duration-anim="0.4">Namah Trace</h1>
+      <p id="outro-sub" class="outro-sub clip" data-start="16.4" data-duration="3.6" data-anim="fade-in" data-easing="ease-out" data-delay="0" data-duration-anim="0.4">by Namah Ropes</p>
+      <p id="outro-tagline" class="outro-tagline clip" data-start="16.95" data-duration="3.05" data-anim="fade-in-up" data-easing="ease-out" data-delay="0" data-duration-anim="0.45">Flat Yarn <span class="arrow">&rarr;</span> Yarn Batch <span class="arrow">&rarr;</span> Rope Batch. Fully traced.</p>
+    </div>
+
+  </div>
+
+  <script>
+    window.__timelines = window.__timelines || {};
+    window.__timelines["namah-trace-brag"] = gsap.timeline({ paused: true });
+    const tl = window.__timelines["namah-trace-brag"];
+    
+    tl.to("#hook-eyebrow", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.5, ease: "power2.out" }, 0.1);
+    tl.to("#db-eyebrow", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.4, ease: "power2.out" }, 3.1);
+    tl.to("#db-h1", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.5, ease: "power2.out" }, 3.3);
+    tl.to("#db-subtitle", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.45, ease: "power2.out" }, 3.6);
+    tl.to("#mc-1", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.35, ease: "power2.out" }, 6.00);
+    tl.to("#mc-2", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.35, ease: "power2.out" }, 6.56);
+    tl.to("#mc-3", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.35, ease: "power2.out" }, 7.09);
+    tl.to("#detail-panel", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.45, ease: "power2.out" }, 8.74);
+    tl.to("#p-chip-1", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.3, ease: "power2.out" }, 9.50);
+    tl.to("#p-chip-2", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.3, ease: "power2.out" }, 9.90);
+    tl.to("#s-chip", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.35, ease: "power2.out" }, 10.40);
+    tl.to("#audit-label", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.4, ease: "power2.out" }, 12.55);
+    tl.to("#audit-div", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.3, ease: "power2.out" }, 12.65);
+    tl.to("#audit-r1", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.38, ease: "power2.out" }, 13.11);
+    tl.to("#audit-r2", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.38, ease: "power2.out" }, 13.91);
+    tl.to("#outro-brand", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.4, ease: "power2.out" }, 16.1);
+    tl.to("#outro-sub", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.4, ease: "power2.out" }, 16.4);
+    tl.to("#outro-tagline", { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.45, ease: "power2.out" }, 16.95);
+
+    // Typewriter effect
+    let typedFull = "Every rope has a family tree.";
+    for (let i = 1; i <= typedFull.length; i++) {
+      tl.call(() => {
+        const el = document.getElementById("typed-text");
+        if (el) el.textContent = typedFull.substring(0, i);
+      }, null, 0.2 + i * 0.055);
+    }
+  </script>
+</body>
+</html>
