@@ -223,6 +223,9 @@ function mapGenealogy(entity, entities, links, balanceLinks = links) {
 
 function quantityBalance(entity, links) {
   const outgoing = links.filter((link) => link.parent_entity_id === entity.id)
+  const startingQuantity = entity.quantity ?? (
+    entity.type === 'yarn' ? entity.estimated_output_quantity : null
+  )
   const hasUnknownAllocation = outgoing.some(
     (link) => link.quantity_used == null
       || !link.unit
@@ -235,10 +238,10 @@ function quantityBalance(entity, links) {
   const unit = entity.unit || null
   const unitsMatch = outgoing.every((link) => link.unit === unit)
   const consumptionKnown = !hasUnknownAllocation && unitsMatch
-  const balanceKnown = entity.quantity != null && Boolean(unit) && consumptionKnown
+  const balanceKnown = startingQuantity != null && Boolean(unit) && consumptionKnown
   return {
     quantityConsumed: consumptionKnown ? consumed : null,
-    quantityRemaining: balanceKnown ? Number(entity.quantity) - consumed : null,
+    quantityRemaining: balanceKnown ? Number(startingQuantity) - consumed : null,
     consumptionKnown: balanceKnown,
   }
 }

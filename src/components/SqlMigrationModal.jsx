@@ -4,6 +4,7 @@ import QUANTITY_TRACKING_SQL from '../../supabase/quantity_tracking_production.s
 import CRITICAL_STOCK_SQL from '../../supabase/critical_stock_and_test_process_migration.sql?raw'
 import RECORD_EVIDENCE_SQL from '../../supabase/record_level_evidence_migration.sql?raw'
 import YARN_OUTPUT_SQL from '../../supabase/yarn_configuration_and_output_migration.sql?raw'
+import YARN_ESTIMATED_ALLOCATION_SQL from '../../supabase/yarn_estimated_output_allocation_migration.sql?raw'
 import EVIDENCE_VIDEO_SQL from '../../supabase/evidence_video_support_migration.sql?raw'
 
 const MIGRATIONS = [
@@ -17,23 +18,30 @@ const MIGRATIONS = [
   {
     id: 'critical-stock',
     title: 'Critical stock & test linkage',
-    label: '1 of 3 · Thresholds and optional test-process links',
+    label: '1 of 4 · Thresholds and optional test-process links',
     sql: CRITICAL_STOCK_SQL,
     description: 'Adds Flat Yarn thresholds, test categories/standards, and optional same-batch process links.',
   },
   {
     id: 'record-evidence',
     title: 'Record-level evidence',
-    label: '2 of 3 · Evidence linked to a process, parameter, or test',
+    label: '2 of 4 · Evidence linked to a process, parameter, or test',
     sql: RECORD_EVIDENCE_SQL,
     description: 'Adds direct evidence links and configures the evidence Storage bucket as private.',
   },
   {
     id: 'yarn-output',
     title: 'Yarn configuration & output',
-    label: '3 of 3 · Named configurations, wastage, and estimates',
+    label: '3 of 4 · Named configurations, wastage, and estimates',
     sql: YARN_OUTPUT_SQL,
     description: 'Adds reusable Yarn configurations and transactional estimated-output/wastage fields.',
+  },
+  {
+    id: 'yarn-estimated-allocation',
+    title: 'Yarn estimate-based Rope allocation',
+    label: '4 of 4 · Allow Rope allocation from estimated Yarn output',
+    sql: YARN_ESTIMATED_ALLOCATION_SQL,
+    description: 'Updates the protected allocation function to validate Rope input against estimated Yarn output when no actual output is recorded. Apply after Yarn configuration & output.',
   },
   {
     id: 'evidence-video',
@@ -77,7 +85,7 @@ export function SqlMigrationModal({ onClose }) {
             <div>
               <h2>Supabase Database Migrations</h2>
               <p className="modal-subtitle">
-                Apply the three feature migrations in order after the base schema, authorization policies,
+                Apply the four feature migrations in order after the base schema, authorization policies,
                 and quantity-tracking prerequisite are installed. Video support is an additional migration.
               </p>
             </div>

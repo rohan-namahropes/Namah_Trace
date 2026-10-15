@@ -262,7 +262,8 @@ export function EntityDetail({
           )}
           <div><span>Created</span><strong>{formatDateTime(entity.created_at)}</strong></div>
           <div><span>Recorded by</span><strong>{entity.created_by_name || '—'}</strong></div>
-          {entity.quantity != null && (
+          {(entity.quantity != null
+            || (entity.type === 'yarn' && entity.estimated_output_quantity != null)) && (
             <>
               <div>
                 <span>Consumed</span>
