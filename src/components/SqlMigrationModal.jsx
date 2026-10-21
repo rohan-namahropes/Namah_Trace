@@ -6,6 +6,7 @@ import RECORD_EVIDENCE_SQL from '../../supabase/record_level_evidence_migration.
 import YARN_OUTPUT_SQL from '../../supabase/yarn_configuration_and_output_migration.sql?raw'
 import YARN_ESTIMATED_ALLOCATION_SQL from '../../supabase/yarn_estimated_output_allocation_migration.sql?raw'
 import EVIDENCE_VIDEO_SQL from '../../supabase/evidence_video_support_migration.sql?raw'
+import STOCK_ALERTS_AND_INTAKE_SQL from '../../supabase/stock_alerts_and_flat_yarn_intake_migration.sql?raw'
 
 const MIGRATIONS = [
   {
@@ -50,10 +51,17 @@ const MIGRATIONS = [
     sql: EVIDENCE_VIDEO_SQL,
     description: 'Allows common video formats in the private evidence bucket; retains the existing 25 MB limit.',
   },
+  {
+    id: 'stock-alerts-intake',
+    title: 'Persistent alert dismissals & Flat Yarn intake',
+    label: 'Additional · Per-user alert dismissals and renameable intake IDs',
+    sql: STOCK_ALERTS_AND_INTAKE_SQL,
+    description: 'Stores dismissed stock alerts per user, permits admin-only Flat Yarn ID renaming, and prevents unnamed intake material from being allocated to Yarn.',
+  },
 ]
 
 export function SqlMigrationModal({ onClose }) {
-  const [selectedId, setSelectedId] = useState('critical-stock')
+  const [selectedId, setSelectedId] = useState('stock-alerts-intake')
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   const selectedMigration = MIGRATIONS.find((migration) => migration.id === selectedId)
@@ -85,8 +93,8 @@ export function SqlMigrationModal({ onClose }) {
             <div>
               <h2>Supabase Database Migrations</h2>
               <p className="modal-subtitle">
-                Apply the four feature migrations in order after the base schema, authorization policies,
-                and quantity-tracking prerequisite are installed. Video support is an additional migration.
+                Apply feature migrations after the base schema and authorization policies. Apply each
+                migration only once; the selected stock-alert and intake migration is safe to rerun.
               </p>
             </div>
           </div>

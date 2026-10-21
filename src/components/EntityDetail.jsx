@@ -225,6 +225,11 @@ export function EntityDetail({
           {typeLabels[entity.type] || entity.type}
         </div>
         <h1>{entity.batch_id}</h1>
+        {entity.type === 'flat_yarn' && entity.batch_id.toUpperCase().startsWith('INTAKE-') && (
+          <p className="detail-intake-note">
+            Temporary intake reference · assign a batch identifier before using this material for Yarn.
+          </p>
+        )}
         <div className="detail-status-quantity">
           <select
             className={`status-select-control ${entity.status?.toLowerCase().replace(/\s+/g, '-')}`}

@@ -142,7 +142,7 @@ export function EntityList({
           {filtered.map((item) => (
             <div
               key={item.id}
-              className={`entity-row-item ${item.lowStock ? 'low-stock-row' : ''}`}
+              className={`entity-row-item ${item.stockDepleted ? 'stock-depleted-row' : item.lowStock ? 'low-stock-row' : ''}`}
               onClick={() => onSelectEntity(item.id)}
             >
               {/* Batch ID */}

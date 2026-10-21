@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
 
 export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave }) {
+  const [batchId, setBatchId] = useState(entity.batch_id || '')
   const [supplier, setSupplier] = useState(entity.supplier || '')
   const [treatment, setTreatment] = useState(entity.treatment || '')
   const [quantity, setQuantity] = useState(entity.quantity != null ? String(entity.quantity) : '')
@@ -60,6 +61,9 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
         quantity: quantity ? Number(quantity) : null,
         unit,
       }
+      if (entity.type === 'flat_yarn' && isAdmin && batchId.trim() !== entity.batch_id) {
+        updates.batch_id = batchId.trim()
+      }
       if (entity.type === 'yarn') {
         updates.estimated_output_quantity = estimatedOutput ? Number(estimatedOutput) : null
         updates.wastage_percentage = wastagePercentage ? Number(wastagePercentage) : null
@@ -108,11 +112,28 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
 
         <form onSubmit={handleSubmit} className="modal-form">
           <div className="form-grid-2">
-            <div className="form-field">
-              <span>Batch ID</span>
-              <input type="text" value={entity.batch_id} disabled className="input-disabled" />
-              <small className="field-hint">Primary batch identifier</small>
-            </div>
+            {entity.type === 'flat_yarn' && isAdmin ? (
+              <label className="form-field">
+                <span>Batch ID</span>
+                <input
+                  type="text"
+                  value={batchId}
+                  onChange={(event) => setBatchId(event.target.value)}
+                  placeholder="Set or rename the batch identifier"
+                />
+                <small className="field-hint">
+                  {entity.batch_id.toUpperCase().startsWith('INTAKE-')
+                    ? 'Set a permanent identifier before using this intake to create Yarn.'
+                    : 'Admins can rename this identifier.'}
+                </small>
+              </label>
+            ) : (
+              <div className="form-field">
+                <span>Batch ID</span>
+                <input type="text" value={entity.batch_id} disabled className="input-disabled" />
+                <small className="field-hint">Primary batch identifier</small>
+              </div>
+            )}
 
             {entity.type === 'flat_yarn' && isAdmin && (
               <label className="form-field">

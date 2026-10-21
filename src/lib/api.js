@@ -323,6 +323,7 @@ async function entityBundle(entityId, knownEntity = null) {
     && hasComparableCriticalThreshold(entity)
     && balance.quantityRemaining != null
     && balance.quantityRemaining < Number(entity.critical_quantity_threshold)
+  const stockDepleted = balance.quantityRemaining != null && balance.quantityRemaining <= 0
   const thresholdUnitProblem = entity.type === 'flat_yarn'
     && entity.critical_quantity_threshold != null
     && (
@@ -353,6 +354,7 @@ async function entityBundle(entityId, knownEntity = null) {
     ...entity,
     ...balance,
     lowStock,
+    stockDepleted,
     thresholdUnitProblem,
     created_by_name: profiles.get(entity.created_by) || null,
     parameters,
@@ -396,6 +398,29 @@ export async function getCurrentUserProfile(userId) {
   })
 }
 
+export async function listDismissedStockAlerts(userId) {
+  return withResult(async () => {
+    const rows = await queryData(
+      requireSupabase().from('user_dismissed_stock_alerts')
+        .select('entity_id')
+        .eq('user_id', userId)
+    )
+    return rows.map((row) => row.entity_id)
+  })
+}
+
+export async function dismissStockAlerts(userId, entityIds) {
+  return withResult(async () => {
+    if (entityIds.length === 0) return []
+    const rows = entityIds.map((entityId) => ({ user_id: userId, entity_id: entityId }))
+    return queryData(
+      requireSupabase().from('user_dismissed_stock_alerts')
+        .upsert(rows, { onConflict: 'user_id,entity_id', ignoreDuplicates: true })
+        .select('entity_id')
+    )
+  })
+}
+
 export async function checkSupabaseAvailable() {
   const db = requireSupabase()
   await queryData(db.from('entities').select('id').limit(1))
@@ -425,6 +450,7 @@ export async function listEntities(type = null) {
         && hasComparableCriticalThreshold(entity)
         && balance.quantityRemaining != null
         && balance.quantityRemaining < Number(entity.critical_quantity_threshold)
+      const stockDepleted = balance.quantityRemaining != null && balance.quantityRemaining <= 0
       const thresholdUnitProblem = entity.type === 'flat_yarn'
         && entity.critical_quantity_threshold != null
         && (
@@ -436,6 +462,7 @@ export async function listEntities(type = null) {
         ...entity,
         ...balance,
         lowStock,
+        stockDepleted,
         thresholdUnitProblem,
       }
     }))
@@ -453,7 +480,7 @@ export async function getEntity(idOrBatchId) {
 }
 
 export async function createFlatYarn({
-  batchId,
+  batchId: requestedBatchIdInput,
   supplier,
   quantity,
   unit = 'kg',
@@ -463,6 +490,17 @@ export async function createFlatYarn({
 }) {
   return withResult(async () => {
     const db = requireSupabase()
+    const supplierName = String(supplier || '').trim()
+    const requestedBatchId = String(requestedBatchIdInput || '').trim()
+    const batchId = requestedBatchId || [
+      'INTAKE',
+      supplierName.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20) || 'COMPANY',
+      new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      crypto.randomUUID().slice(0, 12).toUpperCase(),
+    ].join('-')
+    if (requestedBatchId.toUpperCase().startsWith('INTAKE-')) {
+      throw new Error('Batch IDs starting with INTAKE- are reserved for temporary intake records.')
+    }
     if (criticalQuantityThreshold != null && (
       !Number.isFinite(Number(criticalQuantityThreshold))
       || Number(criticalQuantityThreshold) < 0
@@ -472,8 +510,8 @@ export async function createFlatYarn({
     }
     const entity = await queryData(db.from('entities').insert({
       type: 'flat_yarn',
-      batch_id: String(batchId).trim(),
-      supplier: supplier?.trim() || null,
+      batch_id: batchId,
+      supplier: supplierName || null,
       quantity: quantity == null || quantity === '' ? null : Number(quantity),
       unit: unit || 'kg',
       critical_quantity_threshold: criticalQuantityThreshold,
@@ -484,8 +522,10 @@ export async function createFlatYarn({
     try {
       await writeAuditLog(
         entity.id,
-        `Created Flat Yarn Batch ${entity.batch_id}`,
-        { field_name: 'creation', new_value: `Supplier: ${supplier || 'None'}` }
+        requestedBatchId
+          ? `Created Flat Yarn Batch ${entity.batch_id}`
+          : `Created Flat Yarn Intake ${entity.batch_id}`,
+        { field_name: 'creation', new_value: `Supplier: ${supplierName || 'None'}` }
       )
     } catch (error) {
       throw committedAuditError(error)
@@ -606,6 +646,7 @@ export async function updateEntityBasicInfo(entityId, updates) {
     const current = await queryData(db.from('entities').select('*').eq('id', entityId).maybeSingle())
     if (!current) throw new Error('Entity not found')
     const allowed = [
+      'batch_id',
       'supplier',
       'treatment',
       'quantity',
@@ -619,6 +660,16 @@ export async function updateEntityBasicInfo(entityId, updates) {
     const changes = Object.fromEntries(
       allowed.filter((field) => field in updates).map((field) => [field, updates[field]])
     )
+    if ('batch_id' in changes) {
+      const batchId = String(changes.batch_id || '').trim()
+      if (current.type !== 'flat_yarn' || !batchId) {
+        throw new Error('A non-empty Flat Yarn batch ID is required.')
+      }
+      if (batchId.toUpperCase().startsWith('INTAKE-')) {
+        throw new Error('Batch IDs starting with INTAKE- are reserved for temporary intake records.')
+      }
+      changes.batch_id = batchId
+    }
     if (
       current.type === 'flat_yarn'
       && changes.critical_quantity_threshold != null
@@ -649,6 +700,7 @@ export async function updateEntityBasicInfo(entityId, updates) {
     }
     const auditEvents = []
     const fieldLabels = {
+      batch_id: 'Batch ID',
       estimated_output_quantity: 'Estimated output',
       wastage_percentage: 'Wastage percentage',
       critical_quantity_threshold: 'Critical stock threshold',

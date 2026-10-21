@@ -42,11 +42,19 @@ export function CreateEntityModal({
 
   // Yarn fields
   const [yarnBatchId, setYarnBatchId] = useState(() => {
-    const parent = availableFlatYarns.find((entity) => entity.consumptionKnown && entity.quantityRemaining > 0)
+    const parent = availableFlatYarns.find((entity) => (
+      entity.consumptionKnown
+      && entity.quantityRemaining > 0
+      && !entity.batch_id?.toUpperCase().startsWith('INTAKE-')
+    ))
     return parent ? `${parent.batch_id}-T1680` : ''
   })
   const [selectedParentFlatYarnId, setSelectedParentFlatYarnId] = useState(
-    availableFlatYarns.find((entity) => entity.consumptionKnown && entity.quantityRemaining > 0)?.id || ''
+    availableFlatYarns.find((entity) => (
+      entity.consumptionKnown
+      && entity.quantityRemaining > 0
+      && !entity.batch_id?.toUpperCase().startsWith('INTAKE-')
+    ))?.id || ''
   )
   const [yarnProcessType, setYarnProcessType] = useState('T')
   const [yarnPatternValue, setYarnPatternValue] = useState('1680')
@@ -65,7 +73,9 @@ export function CreateEntityModal({
   const [ropeNotes, setRopeNotes] = useState('')
 
   const hasAvailableMaterial = (entity) =>
-    entity?.consumptionKnown && entity.quantityRemaining > 0
+    entity?.consumptionKnown
+    && entity.quantityRemaining > 0
+    && !entity.batch_id?.toUpperCase().startsWith('INTAKE-')
 
   const selectedFlatYarn = availableFlatYarns.find((entity) => entity.id === selectedParentFlatYarnId)
   const estimatedYarnOutput = selectedFlatYarn
@@ -105,7 +115,6 @@ export function CreateEntityModal({
 
     try {
       if (entityType === 'flat_yarn') {
-        if (!flatBatchId.trim()) throw new Error('Flat Yarn Batch ID is required (e.g. 523).')
         if (!supplier.trim()) throw new Error('Supplier is required (e.g. ABC).')
 
         const res = await onCreateFlatYarn({
@@ -262,19 +271,20 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Batch Identifier *</span>
+                  <span>Batch Identifier (Optional)</span>
                   <input
                     type="text"
-                    required
                     placeholder="e.g. 523"
                     value={flatBatchId}
                     onChange={(e) => setFlatBatchId(e.target.value)}
                   />
-                  <small className="field-hint">Human-readable raw batch number</small>
+                  <small className="field-hint">
+                    Leave blank for a temporary company/date reference. Assign a batch ID before using this intake for Yarn.
+                  </small>
                 </label>
 
                 <label className="form-field">
-                  <span>Supplier *</span>
+                  <span>Company / Supplier *</span>
                   <input
                     type="text"
                     required
@@ -282,7 +292,7 @@ export function CreateEntityModal({
                     value={supplier}
                     onChange={(e) => setSupplier(e.target.value)}
                   />
-                  <small className="field-hint">Incoming material vendor/supplier</small>
+                  <small className="field-hint">Company name used in the temporary reference if no batch ID is provided.</small>
                 </label>
               </div>
 

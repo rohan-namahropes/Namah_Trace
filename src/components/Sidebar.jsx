@@ -106,7 +106,7 @@ export function Sidebar({
         </div>
         {isAdmin && (
           <button className="sidebar-admin-tool" onClick={onOpenSqlModal}>
-            <Database size={14} /> Quantity tracking SQL
+            <Database size={14} /> Database migrations
           </button>
         )}
         <button className="logout-action-btn" onClick={onLogout}>

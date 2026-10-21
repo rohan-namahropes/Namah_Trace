@@ -18,6 +18,8 @@ import {
   getCurrentUserProfile,
   getStorageMode,
   getEvidenceDownloadUrl,
+  listDismissedStockAlerts,
+  dismissStockAlerts,
 } from './lib/api'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
@@ -48,8 +50,9 @@ export function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [dataError, setDataError] = useState('')
-  const [stockAlertStorageError, setStockAlertStorageError] = useState('')
   const [dismissedStockAlerts, setDismissedStockAlerts] = useState({ userId: null, ids: [] })
+  const [stockAlertError, setStockAlertError] = useState('')
+  const [stockAlertsLoaded, setStockAlertsLoaded] = useState(false)
 
   // Modals state
   const [createModal, setCreateModal] = useState({ open: false, type: 'flat_yarn' })
@@ -139,41 +142,69 @@ export function App() {
 
   useEffect(() => {
     const userId = session?.user?.id
-    if (!userId) {
-      setDismissedStockAlerts({ userId: null, ids: [] })
-      return
-    }
+    setDismissedStockAlerts({ userId: userId || null, ids: [] })
+    setStockAlertError('')
+    setStockAlertsLoaded(false)
+    if (!userId) return
 
-    try {
-      const savedIds = localStorage.getItem(`namah-trace:dismissed-stock-alerts:${userId}`)
-      const ids = savedIds ? JSON.parse(savedIds) : []
-      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
-        throw new Error('Saved dismissed stock alerts have an invalid format.')
+    let active = true
+    listDismissedStockAlerts(userId).then(async (result) => {
+      if (!active) return
+      if (result.error) {
+        setStockAlertError(result.error.message || 'Unable to load dismissed stock alerts.')
+        setStockAlertsLoaded(true)
+        return
       }
-      setDismissedStockAlerts({ userId, ids: [...new Set(ids)] })
-      setStockAlertStorageError('')
-    } catch (error) {
-      setDismissedStockAlerts({ userId, ids: [] })
-      setStockAlertStorageError(error.message || 'Unable to load dismissed stock alerts.')
+
+      let legacyIds = []
+      const legacyKey = `namah-trace:dismissed-stock-alerts:${userId}`
+      try {
+        const savedIds = localStorage.getItem(legacyKey)
+        const parsedIds = savedIds ? JSON.parse(savedIds) : []
+        if (!Array.isArray(parsedIds) || parsedIds.some((id) => typeof id !== 'string')) {
+          throw new Error('Previously dismissed stock alerts have an invalid format.')
+        }
+        legacyIds = [...new Set(parsedIds)]
+      } catch (error) {
+        if (active) setStockAlertError(error.message || 'Unable to read previously dismissed stock alerts.')
+      }
+
+      let nextIds = [...new Set([...result.data, ...legacyIds])]
+      if (legacyIds.length) {
+        const saveLegacyResult = await dismissStockAlerts(userId, legacyIds)
+        if (!active) return
+        if (saveLegacyResult.error) {
+          setStockAlertError(saveLegacyResult.error.message || 'Unable to migrate dismissed stock alerts.')
+        } else {
+          try {
+            localStorage.removeItem(legacyKey)
+          } catch (error) {
+            setStockAlertError(error.message || 'Dismissals were saved but old browser data could not be removed.')
+          }
+        }
+      }
+      if (!active) return
+      setDismissedStockAlerts({ userId, ids: nextIds })
+      setStockAlertsLoaded(true)
+    })
+    return () => {
+      active = false
     }
   }, [session?.user?.id])
 
-  const handleDismissStockAlerts = (entityIds) => {
+  const handleDismissStockAlerts = async (entityIds) => {
     const userId = session?.user?.id
-    if (!userId) {
-      setDataError('Sign in to dismiss stock alerts.')
+    if (!userId) return
+    const result = await dismissStockAlerts(userId, entityIds)
+    if (result.error) {
+      setStockAlertError(result.error.message || 'Unable to dismiss stock alerts.')
       return
     }
-
-    const currentIds = dismissedStockAlerts.userId === userId ? dismissedStockAlerts.ids : []
-    const nextIds = [...new Set([...currentIds, ...entityIds])]
-    try {
-      localStorage.setItem(`namah-trace:dismissed-stock-alerts:${userId}`, JSON.stringify(nextIds))
-      setDismissedStockAlerts({ userId, ids: nextIds })
-      setStockAlertStorageError('')
-    } catch (error) {
-      setStockAlertStorageError(error.message || 'Unable to save dismissed stock alerts.')
-    }
+    setDismissedStockAlerts((current) => {
+      const currentIds = current.userId === userId ? current.ids : []
+      return { userId, ids: [...new Set([...currentIds, ...entityIds])] }
+    })
+    setStockAlertError('')
   }
 
   useEffect(() => {
@@ -430,12 +461,12 @@ export function App() {
 
   const availableFlatYarns = entities.filter((e) => e.type === 'flat_yarn')
   const availableYarns = entities.filter((e) => e.type === 'yarn')
-  const dismissedIds = new Set(
-    dismissedStockAlerts.userId === session.user.id ? dismissedStockAlerts.ids : [],
-  )
-  const visibleLowStockEntities = entities.filter(
-    (entity) => entity.lowStock && !dismissedIds.has(entity.id),
-  )
+  const visibleLowStockEntities = stockAlertsLoaded
+    && dismissedStockAlerts.userId === session.user.id
+    ? entities.filter(
+      (entity) => entity.lowStock && !dismissedStockAlerts.ids.includes(entity.id),
+    )
+    : []
 
   return (
     <div className="app-shell">
@@ -474,9 +505,9 @@ export function App() {
               {dataError}
             </div>
           )}
-          {stockAlertStorageError && (
+          {stockAlertError && (
             <div className="login-error-box" role="alert">
-              Unable to persist dismissed stock alerts: {stockAlertStorageError}
+              Stock alert dismissals need the database migration before they can be saved: {stockAlertError}
             </div>
           )}
           <Suspense fallback={<div className="page-loading-state">Loading workspace...</div>}>

@@ -72,6 +72,12 @@ The project contains the complete first migration at [supabase/schema.sql](supab
 
 The SQL file also enables Row Level Security and creates authenticated-user policies. Do not disable RLS to make a query work. Fix the policy or query instead.
 
+### Current Trace stock-alert and Flat Yarn intake update
+
+For an existing Trace database, open the admin **Database migrations** tool, select **Persistent alert dismissals & Flat Yarn intake**, copy the SQL, and run `supabase/stock_alerts_and_flat_yarn_intake_migration.sql` in the Supabase SQL Editor after the base schema and authorization policies. This adds per-user permanent alert dismissals and database protections for admin-only Flat Yarn batch renaming and temporary intake allocation. No other migration is needed for these features.
+
+When creating Flat Yarn, leave **Batch Identifier** empty to generate a temporary reference containing the supplier, intake date, and unique suffix. An admin can set or rename the identifier from the batch's **Edit** action. Temporary `INTAKE-` records cannot be selected or allocated for Yarn until they have a permanent identifier.
+
 ## 6. Create an administrator account
 
 1. In Supabase, open **Authentication** → **Users**.

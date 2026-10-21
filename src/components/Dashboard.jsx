@@ -46,6 +46,42 @@ export function Dashboard({
         </button>
       </header>
 
+      {lowStockEntities.length > 0 && (
+        <section className="dashboard-stock-alerts" aria-labelledby="stock-alert-heading" role="alert">
+          <header>
+            <AlertTriangle size={17} />
+            <h2 id="stock-alert-heading">Critical Flat Yarn stock</h2>
+            <span>{lowStockEntities.length}</span>
+          </header>
+          <div className="dashboard-stock-alert-list">
+            {lowStockEntities.map((entity) => (
+              <div className="dashboard-stock-alert-item" key={entity.id}>
+                <button
+                  className="dashboard-stock-alert-content"
+                  type="button"
+                  onClick={() => onSelectEntity(entity.id)}
+                >
+                  <strong>{entity.batch_id}</strong>
+                  <span>
+                    <span>{entity.quantityRemaining} {entity.unit} remaining</span>
+                    <span>Threshold {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}</span>
+                  </span>
+                  <ArrowRight size={14} />
+                </button>
+                <button
+                  className="dashboard-stock-alert-dismiss"
+                  type="button"
+                  aria-label={`Dismiss stock alert for ${entity.batch_id}`}
+                  onClick={() => onDismissStockAlert([entity.id])}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="dashboard-v3-status" aria-label="Batch counts by product type">
         {batchTypes.map(({ type, label, icon: Icon }) => (
           <button
@@ -69,42 +105,6 @@ export function Dashboard({
           </button>
         ))}
       </section>
-
-      {lowStockEntities.length > 0 && (
-        <section className="dashboard-stock-alerts" aria-labelledby="stock-alert-heading" role="alert">
-          <header>
-            <AlertTriangle size={17} />
-            <h2 id="stock-alert-heading">Critical Flat Yarn stock</h2>
-            <span>{lowStockEntities.length}</span>
-          </header>
-          <div className="dashboard-stock-alert-list">
-            {lowStockEntities.map((entity) => (
-              <div className="dashboard-stock-alert-item" key={entity.id}>
-                <button
-                  className="dashboard-stock-alert-content"
-                  type="button"
-                  onClick={() => onSelectEntity(entity.id)}
-                >
-                  <strong>{entity.batch_id}</strong>
-                  <span>
-                    {entity.quantityRemaining} {entity.unit} remaining · below threshold{' '}
-                    {entity.critical_quantity_threshold} {entity.critical_quantity_threshold_unit}
-                  </span>
-                  <ArrowRight size={14} />
-                </button>
-                <button
-                  className="dashboard-stock-alert-dismiss"
-                  type="button"
-                  aria-label={`Dismiss stock alert for ${entity.batch_id}`}
-                  onClick={() => onDismissStockAlert([entity.id])}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       <section className="dashboard-v3-activity" aria-labelledby="dashboard-activity-heading">
         <header className="dashboard-v3-section-heading">
