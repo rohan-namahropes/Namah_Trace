@@ -125,17 +125,30 @@ function mapGenealogy(entity, entities, links, balanceLinks = links) {
         parentId: parent.id,
         parentBatchId: parent.batch_id,
         parentType: parent.type,
+        parentStatus: parent.status,
+        parentCreatedAt: parent.created_at,
+        parentSupplier: parent.supplier,
+        parentTreatment: parent.treatment,
+        parentQuantity: parent.quantity,
         parentUnit: parent.unit,
+        parentNotes: parent.notes,
         parentRemaining: parentBalance.quantityRemaining,
         parentRemainingKnown: parentBalance.consumptionKnown,
         childId: child.id,
         childBatchId: child.batch_id,
         childType: child.type,
+        childStatus: child.status,
+        childCreatedAt: child.created_at,
+        childSupplier: child.supplier,
+        childTreatment: child.treatment,
+        childQuantity: child.quantity,
         childUnit: child.unit,
+        childNotes: child.notes,
         childRemaining: childBalance.quantityRemaining,
         childRemainingKnown: childBalance.consumptionKnown,
         quantityUsed: link.quantity_used,
         unit: link.unit,
+        remarks: link.remarks,
       }
     })
     .sort((left, right) => (
@@ -291,6 +304,30 @@ async function entityBundle(entityId, knownEntity = null) {
   const allGenealogyLinks = [...new Map(
     [...genealogyLinks, ...adjacentLinks.flat()].map((link) => [link.id, link])
   ).values()]
+  const ancestorDepths = new Map([[entityId, 0]])
+  const pendingAncestors = [entityId]
+  while (pendingAncestors.length) {
+    const childId = pendingAncestors.shift()
+    for (const link of allGenealogyLinks) {
+      if (link.child_entity_id !== childId || ancestorDepths.has(link.parent_entity_id)) continue
+      ancestorDepths.set(link.parent_entity_id, ancestorDepths.get(childId) + 1)
+      pendingAncestors.push(link.parent_entity_id)
+    }
+  }
+  const parentIds = (entity.type === 'rope' ? [...ancestorDepths.keys()] : [])
+    .filter((id) => id !== entityId)
+    .sort((left, right) => (
+      ancestorDepths.get(left) - ancestorDepths.get(right)
+      || left.localeCompare(right)
+    ))
+  const parentLifecycleRows = parentIds.length
+    ? await Promise.all([
+      queryData(db.from('entity_parameters').select('*').in('entity_id', parentIds).order('created_at')),
+      queryData(db.from('entity_tests').select('*').in('entity_id', parentIds).order('created_at')),
+      queryData(db.from('entity_processes').select('*').in('entity_id', parentIds).order('performed_at')),
+    ])
+    : [[], [], []]
+  const [parentParameters, parentTests, parentProcesses] = parentLifecycleRows
   const relatedIds = [...new Set(allGenealogyLinks.flatMap((link) => [
     link.parent_entity_id,
     link.child_entity_id,
@@ -298,16 +335,11 @@ async function entityBundle(entityId, knownEntity = null) {
   const relatedEntities = relatedIds.length
     ? await queryData(db.from('entities').select('*').in('id', relatedIds))
     : []
-  const ancestorIds = new Set([entityId])
   const descendantIds = new Set([entityId])
   let expanded = true
   while (expanded) {
     expanded = false
     for (const link of allGenealogyLinks) {
-      if (ancestorIds.has(link.child_entity_id) && !ancestorIds.has(link.parent_entity_id)) {
-        ancestorIds.add(link.parent_entity_id)
-        expanded = true
-      }
       if (descendantIds.has(link.parent_entity_id) && !descendantIds.has(link.child_entity_id)) {
         descendantIds.add(link.child_entity_id)
         expanded = true
@@ -315,8 +347,12 @@ async function entityBundle(entityId, knownEntity = null) {
     }
   }
   const lineageLinks = allGenealogyLinks.filter((link) => (
-    (ancestorIds.has(link.parent_entity_id) && ancestorIds.has(link.child_entity_id))
-    || (descendantIds.has(link.parent_entity_id) && descendantIds.has(link.child_entity_id))
+    entity.type === 'rope'
+      ? ancestorDepths.has(link.parent_entity_id) && ancestorDepths.has(link.child_entity_id)
+      : (
+        (ancestorDepths.has(link.parent_entity_id) && ancestorDepths.has(link.child_entity_id))
+        || (descendantIds.has(link.parent_entity_id) && descendantIds.has(link.child_entity_id))
+      )
   ))
   const balance = quantityBalance(entity, allGenealogyLinks)
   const lowStock = entity.type === 'flat_yarn'
@@ -337,10 +373,10 @@ async function entityBundle(entityId, knownEntity = null) {
     ...processes.map((item) => item.performed_by),
     ...evidenceRows.map((item) => item.uploaded_by),
     ...auditLogs.map((item) => item.performed_by),
-    ...relatedEntities.map((item) => item.created_by),
   ]
   const profiles = await fetchProfiles(peopleIds)
   const processLookup = new Map(processes.map((item) => [item.id, item]))
+  const parentProcessLookup = new Map(parentProcesses.map((item) => [item.id, item]))
   const parameterLookup = new Map(parameters.map((item) => [item.id, item]))
   const testLookup = new Map(tests.map((item) => [item.id, item]))
   const evidence = evidenceRows.map((item) => ({
@@ -367,6 +403,24 @@ async function entityBundle(entityId, knownEntity = null) {
       ...item,
       performed_by_name: profiles.get(item.performed_by) || null,
     })),
+    parentRecords: parentIds.map((parentId) => {
+      const parent = relatedEntities.find((item) => item.id === parentId)
+      return {
+        entityId: parentId,
+        batchId: parent?.batch_id || 'Unknown',
+        type: parent?.type || 'unknown',
+        supplier: parent?.supplier || null,
+        treatment: parent?.treatment || null,
+        processes: parentProcesses.filter((item) => item.entity_id === parentId),
+        parameters: parentParameters.filter((item) => item.entity_id === parentId),
+        tests: parentTests
+          .filter((item) => item.entity_id === parentId)
+          .map((item) => ({
+            ...item,
+            process_name: item.process_id ? parentProcessLookup.get(item.process_id)?.process_name || null : null,
+          })),
+      }
+    }),
     evidence,
     auditLogs: auditLogs.map((item) => ({
       ...withAuditDisplayFields(item),

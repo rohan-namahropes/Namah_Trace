@@ -57,6 +57,40 @@ function typeIcon(type, size = 15) {
   return <Anchor size={size} />
 }
 
+function getParentDisplayDetails(parent) {
+  const measurements = [...(parent.parameters || []), ...(parent.tests || [])]
+  const findMeasurement = (matcher) => measurements.find((item) => matcher(item.name || ''))
+  const denierMeasurement = findMeasurement((name) => /denier/i.test(name))
+  const twistMeasurement = findMeasurement((name) => (
+    /\b(twist type|twist direction|direction of twist)\b/i.test(name)
+    || /^twist$/i.test(name.trim())
+  ))
+  const denier = denierMeasurement
+    ? `${denierMeasurement.value}${denierMeasurement.unit ? ` ${denierMeasurement.unit}` : ''}`
+    : parent.type === 'yarn'
+      ? parent.treatment?.match(/\b\d+(?:\.\d+)?\s*denier\b/i)?.[0] || ''
+      : ''
+  const twistType = twistMeasurement
+    ? `${twistMeasurement.name}: ${twistMeasurement.value}${twistMeasurement.unit ? ` ${twistMeasurement.unit}` : ''}`
+    : ''
+
+  if (parent.type === 'flat_yarn') {
+    return [
+      parent.supplier ? `Supplier: ${parent.supplier}` : '',
+      denier ? `Denier: ${denier}` : '',
+    ].filter(Boolean)
+  }
+
+  if (parent.type === 'yarn') {
+    return [
+      denier ? `Denier: ${denier}` : '',
+      twistType || (parent.treatment ? `Treatment: ${parent.treatment}` : ''),
+    ].filter(Boolean)
+  }
+
+  return []
+}
+
 export function EntityDetail({
   entity,
   isAdmin = false,
@@ -98,6 +132,7 @@ export function EntityDetail({
       icon: <Wrench size={15} />,
       title: item.process_name,
       timestamp: item.performed_at || item.created_at,
+      recordedAt: item.created_at,
       detail: item.specification,
       remarks: item.remarks,
       actor: item.performed_by_name,
@@ -111,6 +146,7 @@ export function EntityDetail({
       icon: <FlaskConical size={15} />,
       title: item.name,
       timestamp: item.created_at,
+      recordedAt: item.created_at,
       detail: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
       remarks: item.remarks,
       evidenceTarget: 'parameter',
@@ -123,6 +159,7 @@ export function EntityDetail({
       icon: <CheckCircle2 size={15} />,
       title: item.test_name,
       timestamp: item.tested_at || item.created_at,
+      recordedAt: item.created_at,
       detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
       remarks: item.remarks,
       actor: item.performed_by_name,
@@ -136,13 +173,18 @@ export function EntityDetail({
       icon: <Paperclip size={15} />,
       title: item.file_name,
       timestamp: item.created_at,
+      recordedAt: item.created_at,
       detail: item.test_name
         ? `Evidence for test: ${item.test_name}`
         : item.parameter_name
           ? `Evidence for parameter: ${item.parameter_name}`
           : item.process_name
             ? `Evidence for process: ${item.process_name}`
-            : item.mime_type || 'Batch-level document',
+            : 'Batch-level document',
+      remarks: [
+        item.mime_type || 'File type unknown',
+        item.file_size == null ? 'File size unknown' : `${item.file_size} bytes`,
+      ].join(' · '),
       actor: item.uploaded_by_name,
     })),
     ...(entity.notes ? [{
@@ -152,6 +194,7 @@ export function EntityDetail({
       icon: <FileText size={15} />,
       title: 'Batch remarks',
       timestamp: entity.created_at,
+      recordedAt: entity.created_at,
       remarks: entity.notes,
     }] : []),
   ].sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0))
@@ -160,37 +203,250 @@ export function EntityDetail({
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
+    const genealogyEdges = genealogy.treeEdges || []
+    const isRope = entity.type === 'rope'
+    const nodesById = new Map()
+    const outgoing = new Map()
+    const incomingCounts = new Map()
+    for (const edge of genealogyEdges) {
+      nodesById.set(edge.parentId, {
+        id: edge.parentId,
+        batchId: edge.parentBatchId,
+        type: edge.parentType,
+        detail: edge.parentTreatment,
+      })
+      nodesById.set(edge.childId, {
+        id: edge.childId,
+        batchId: edge.childBatchId,
+        type: edge.childType,
+        detail: edge.childTreatment,
+      })
+      incomingCounts.set(edge.parentId, incomingCounts.get(edge.parentId) || 0)
+      incomingCounts.set(edge.childId, (incomingCounts.get(edge.childId) || 0) + 1)
+      outgoing.set(edge.parentId, [...(outgoing.get(edge.parentId) || []), edge.childId])
+    }
+    const parentDetailsById = new Map(
+      (entity.parentRecords || []).map((parent) => [parent.entityId, getParentDisplayDetails(parent)])
+    )
+    for (const [parentId, details] of parentDetailsById) {
+      const node = nodesById.get(parentId)
+      if (node) node.details = details
+    }
+    const depthById = new Map()
+    const ready = [...nodesById.values()]
+      .filter((node) => incomingCounts.get(node.id) === 0)
+      .sort((left, right) => left.batchId.localeCompare(right.batchId))
+    ready.forEach((node) => depthById.set(node.id, 0))
+    while (ready.length) {
+      const node = ready.shift()
+      for (const childId of outgoing.get(node.id) || []) {
+        depthById.set(childId, Math.max(depthById.get(childId) || 0, depthById.get(node.id) + 1))
+        const incoming = incomingCounts.get(childId) - 1
+        incomingCounts.set(childId, incoming)
+        if (incoming === 0) {
+          ready.push(nodesById.get(childId))
+          ready.sort((left, right) => left.batchId.localeCompare(right.batchId))
+        }
+      }
+    }
+    const genealogyDiagram = genealogyEdges.length && depthById.size === nodesById.size
+      ? (() => {
+        const rowsByDepth = new Map()
+        for (const node of nodesById.values()) {
+          const depth = depthById.get(node.id)
+          rowsByDepth.set(depth, [...(rowsByDepth.get(depth) || []), node])
+        }
+        for (const row of rowsByDepth.values()) {
+          row.sort((left, right) => left.batchId.localeCompare(right.batchId))
+        }
+        const boxWidth = 154
+        const boxHeight = 64
+        const columnCount = Math.max(1, ...[...rowsByDepth.values()].map((row) => row.length))
+        const columnGap = 18
+        const rowGap = 0
+        const layerGap = 50
+        const horizontalPadding = 8
+        const verticalPadding = 8
+        const positions = new Map()
+        const diagramWidth = horizontalPadding * 2
+          + columnCount * boxWidth
+          + Math.max(0, columnCount - 1) * columnGap
+        let nextLayerY = verticalPadding
+        for (const [depth, row] of rowsByDepth) {
+          const rowOffset = (columnCount - row.length) * (boxWidth + columnGap) / 2
+          row.forEach((node, index) => {
+            positions.set(node.id, {
+              x: horizontalPadding + rowOffset + index * (boxWidth + columnGap),
+              y: nextLayerY,
+            })
+          })
+          nextLayerY += boxHeight + rowGap + layerGap
+        }
+        const diagramHeight = Math.max(
+          ...[...positions.values()].map((position) => position.y + boxHeight)
+        ) + verticalPadding
+        const connectors = genealogyEdges.map((edge) => {
+          const parent = positions.get(edge.parentId)
+          const child = positions.get(edge.childId)
+          if (!parent || !child) return ''
+          const startX = parent.x + boxWidth / 2
+          const startY = parent.y + boxHeight
+          const endX = child.x + boxWidth / 2
+          const endY = child.y
+          const middleY = startY + (endY - startY) / 2
+          return `<path d="M ${startX} ${startY} C ${startX} ${middleY}, ${endX} ${middleY}, ${endX} ${endY}" />`
+        }).join('')
+        const nodeMarkup = [...nodesById.values()].map((node) => {
+          const position = positions.get(node.id)
+          const details = node.details || (node.type === 'yarn' && node.detail ? [node.detail] : [])
+          const batchY = details.length ? position.y + 21 : position.y + 36
+          const detailMarkup = details.slice(0, 2).map((detail, index) => (
+            `<text class="node-type" x="${position.x + boxWidth / 2}" y="${position.y + 39 + index * 14}" textLength="${boxWidth - 18}" lengthAdjust="spacingAndGlyphs">${escapeHtml(detail)}</text>`
+          )).join('')
+          return `<g class="${node.id === entity.id ? 'current' : ''}"><rect x="${position.x}" y="${position.y}" width="${boxWidth}" height="${boxHeight}" rx="6" />
+            <text class="node-batch" x="${position.x + boxWidth / 2}" y="${batchY}" textLength="${boxWidth - 18}" lengthAdjust="spacingAndGlyphs">${escapeHtml(node.batchId)}</text>
+            ${detailMarkup}</g>`
+        }).join('')
+        return `<div class="genealogy-diagram"><svg role="img" aria-label="Batch genealogy" viewBox="0 0 ${diagramWidth} ${diagramHeight}" xmlns="http://www.w3.org/2000/svg">
+          <g class="genealogy-connectors">${connectors}</g><g class="genealogy-nodes">${nodeMarkup}</g>
+        </svg></div>`
+      })()
+      : ''
     const rows = entries.map((entry) => `
       <tr>
         <td>${escapeHtml(entry.type)}</td>
         <td>${escapeHtml(entry.title)}</td>
-        <td>${escapeHtml(entry.detail || entry.remarks || '—')}</td>
+        <td>${escapeHtml(entry.detail || '—')}</td>
+        <td>${escapeHtml(entry.remarks || '—')}</td>
+        <td>${escapeHtml(entry.actor || '—')}</td>
         <td>${escapeHtml(formatDateTime(entry.timestamp))}</td>
+        <td>${escapeHtml(formatDateTime(entry.recordedAt || entry.timestamp))}</td>
       </tr>
     `).join('')
+    const auditRows = auditLogs.map((log) => `
+      <tr>
+        <td>${escapeHtml(log.action || '—')}</td>
+        <td>${escapeHtml(log.field_name || '—')}</td>
+        <td>${escapeHtml(log.old_value || '—')}</td>
+        <td>${escapeHtml(log.new_value || '—')}</td>
+        <td>${escapeHtml(log.performed_by_name || '—')}</td>
+        <td>${escapeHtml(formatDateTime(log.created_at))}</td>
+      </tr>
+    `).join('')
+    const parentRecordBlocks = (entity.parentRecords || []).map((parent) => {
+      const parentDetails = getParentDisplayDetails(parent)
+      const records = [
+        ...parent.processes.map((item) => ({
+          type: 'Process',
+          name: item.process_name,
+          details: item.specification,
+          remarks: item.remarks,
+          eventAt: item.performed_at,
+        })),
+        ...parent.parameters.map((item) => ({
+          type: 'Parameter',
+          name: item.name,
+          details: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
+          remarks: item.remarks,
+          eventAt: item.created_at,
+        })),
+        ...parent.tests.map((item) => ({
+          type: 'Test',
+          name: item.test_name,
+          details: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
+          remarks: item.remarks,
+          eventAt: item.tested_at,
+        })),
+      ].sort((left, right) => new Date(left.eventAt || 0) - new Date(right.eventAt || 0))
+      const parentRows = records.map((record) => `
+        <tr>
+          <td>${escapeHtml(record.type)}</td>
+          <td>${escapeHtml(record.name)}</td>
+          <td>${escapeHtml(record.details || '—')}</td>
+          <td>${escapeHtml(record.remarks || '—')}</td>
+          <td>${escapeHtml(formatDateTime(record.eventAt))}</td>
+        </tr>
+      `).join('')
+      return `<section class="report-section parent-record-block"><h3>${escapeHtml(typeLabels[parent.type] || parent.type)} · ${escapeHtml(parent.batchId)}</h3>
+        ${parentDetails.length ? `<p class="parent-identifiers">${parentDetails.map(escapeHtml).join(' · ')}</p>` : ''}
+        <table><thead><tr><th>Type</th><th>Record</th><th>Details</th><th>Remarks</th><th>Date</th></tr></thead>
+        <tbody>${parentRows || '<tr><td colspan="5">No process, parameter, or test records for this parent.</td></tr>'}</tbody></table>
+      </section>`
+    }).join('')
+    const ownLifecycleSection = `<section class="report-section"><h2>${isRope ? 'Rope batch records' : 'Lifecycle records'}</h2>
+      <table><thead><tr><th>Type</th><th>Record</th><th>Details</th><th>Remarks / evidence context</th><th>Recorded by</th><th>Event time</th><th>Record time</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7">No lifecycle records</td></tr>'}</tbody></table>
+    </section>`
     const html = `<!doctype html>
       <html><head><title>Namah Trace · ${escapeHtml(entity.batch_id)}</title>
       <style>
-        body{font:14px Arial,sans-serif;color:#202a35;margin:36px}
-        h1{margin-bottom:4px}p,small{color:#586575}
-        dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-        dt{font-size:11px;color:#586575;text-transform:uppercase}
-        dd{margin:2px 0 0;font-weight:600}
-        table{border-collapse:collapse;width:100%;margin-top:24px}
-        th,td{text-align:left;padding:8px;border-bottom:1px solid #d8dce0}
+        *{box-sizing:border-box}
+        body{font:12px/1.45 Arial,sans-serif;color:#253247;margin:0 auto;padding:32px;max-width:1100px;background:#fff}
+        header{border-bottom:2px solid #1d766d;padding-bottom:16px;margin-bottom:22px}
+        .brand{font-size:10px;letter-spacing:.13em;font-weight:700;color:#1d766d;text-transform:uppercase}
+        h1{font-size:25px;line-height:1.15;margin:8px 0 3px;color:#172b3c;overflow-wrap:anywhere}
+        h2{font-size:15px;line-height:1.25;margin:0 0 10px;color:#172b3c}
+        h3{font-size:12px;margin:0 0 8px;color:#245b58}
+        p{margin:4px 0;color:#586575}
+        section{margin-top:22px}
+        @page{size:A4 portrait;margin:12mm}
+        dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 14px;margin:0;padding:14px;background:#f5f8f8;border:1px solid #e1e9e8;border-radius:8px}
+        dt{font-size:9px;color:#657482;text-transform:uppercase;letter-spacing:.06em}
+        dd{margin:2px 0 0;font-size:11px;font-weight:600;overflow-wrap:anywhere}
+        table{border-collapse:collapse;width:100%;margin-top:8px;table-layout:fixed;font-size:9px;line-height:1.35}
+        th,td{text-align:left;vertical-align:top;padding:6px 5px;border-bottom:1px solid #e1e7eb;overflow-wrap:anywhere;word-break:break-word}
+        th{background:#edf3f3;color:#334b5a;font-size:8px;text-transform:uppercase;letter-spacing:.025em}
+        tbody tr:nth-child(even){background:#fafcfc}
+        .genealogy-diagram{width:100%;margin:6px auto 0;text-align:center}
+        .genealogy-diagram svg{display:block;width:100%;height:auto;max-width:150mm;margin:auto}
+        .genealogy-connectors path{fill:none;stroke:#8796a2;stroke-width:1.25}
+        .genealogy-nodes rect{fill:#fff;stroke:#d6dfe4;stroke-width:1.2}
+        .genealogy-nodes g.current rect{fill:#f3f8ff;stroke:#1664c0;stroke-width:1.6}
+        .genealogy-nodes text{text-anchor:middle;fill:#253b4a}
+        .genealogy-nodes .node-batch{font-size:11px;font-weight:700}
+        .genealogy-nodes .node-type{font-size:9px;fill:#687985}
+        .parent-record-block{break-inside:avoid}
+        .parent-record-block+ .parent-record-block{margin-top:14px}
+        @media print{
+          body{max-width:none;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .report-section{break-inside:auto}
+          h2,h3{break-after:avoid}
+          thead{display:table-header-group}
+          tr{break-inside:avoid}
+          .genealogy-diagram{break-inside:avoid}
+          .genealogy-diagram svg{width:100%;max-width:150mm}
+        }
       </style></head><body>
-      <small>NAMAH TRACE · V1.1</small><h1>${escapeHtml(entity.batch_id)}</h1>
-      <p>${escapeHtml(typeLabels[entity.type] || entity.type)} · Created ${escapeHtml(formatDate(entity.created_at))}</p>
+      <header><div class="brand">Namah Trace · Batch report</div><h1>${escapeHtml(entity.batch_id)}</h1>
+      <p>${escapeHtml(typeLabels[entity.type] || entity.type)} · Generated ${escapeHtml(formatDateTime(new Date().toISOString()))}</p></header>
       <dl>
+        <div><dt>Batch ID</dt><dd>${escapeHtml(entity.batch_id)}</dd></div>
+        <div><dt>Type</dt><dd>${escapeHtml(typeLabels[entity.type] || entity.type)}</dd></div>
         <div><dt>Status</dt><dd>${escapeHtml(entity.status || 'In Progress')}</dd></div>
+        <div><dt>Created</dt><dd>${escapeHtml(formatDateTime(entity.created_at))}</dd></div>
+        <div><dt>Recorded by</dt><dd>${escapeHtml(entity.created_by_name || '—')}</dd></div>
         <div><dt>Recorded output</dt><dd>${escapeHtml(entity.quantity == null ? 'Unspecified' : `${entity.quantity} ${entity.unit || ''}`)}</dd></div>
-        <div><dt>Consumed</dt><dd>${escapeHtml(entity.quantityConsumed == null ? 'Unknown' : `${entity.quantityConsumed} ${entity.unit || ''}`)}</dd></div>
-        <div><dt>Remaining</dt><dd>${escapeHtml(entity.consumptionKnown ? `${entity.quantityRemaining} ${entity.unit}` : 'Unknown')}</dd></div>
+        ${!isRope ? `<div><dt>Consumed</dt><dd>${escapeHtml(entity.quantityConsumed == null ? 'Unknown' : `${entity.quantityConsumed} ${entity.unit || ''}`)}</dd></div>` : ''}
+        ${!isRope ? `<div><dt>Remaining</dt><dd>${escapeHtml(entity.consumptionKnown ? `${entity.quantityRemaining} ${entity.unit}` : 'Unknown')}</dd></div>` : ''}
+        ${entity.estimated_output_quantity != null ? `<div><dt>Estimated output</dt><dd>${escapeHtml(`${entity.estimated_output_quantity} ${entity.unit || ''}`)}</dd></div>` : ''}
+        ${entity.wastage_percentage != null ? `<div><dt>Wastage estimate</dt><dd>${escapeHtml(`${entity.wastage_percentage}%`)}</dd></div>` : ''}
         ${entity.supplier ? `<div><dt>Supplier</dt><dd>${escapeHtml(entity.supplier)}</dd></div>` : ''}
         ${entity.treatment ? `<div><dt>Treatment</dt><dd>${escapeHtml(entity.treatment)}</dd></div>` : ''}
+        ${entity.critical_quantity_threshold != null ? `<div><dt>Critical stock threshold</dt><dd>${escapeHtml(`${entity.critical_quantity_threshold} ${entity.critical_quantity_threshold_unit || entity.unit || ''}`)}</dd></div>` : ''}
       </dl>
-      <h2>Lifecycle</h2><table><thead><tr><th>Type</th><th>Record</th><th>Details</th><th>Date</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="4">No lifecycle records</td></tr>'}</tbody></table>
+      ${entity.notes ? `<section class="report-section"><h2>Batch notes</h2><p>${escapeHtml(entity.notes)}</p></section>` : ''}
+      ${isRope ? ownLifecycleSection : ''}
+      <section class="report-section"><h2>Genealogy</h2>
+        ${genealogyDiagram || '<p>No material links recorded.</p>'}
+      </section>
+      ${isRope ? `<section class="report-section"><h2>Parent batch details</h2>
+        ${parentRecordBlocks || '<p>No parent batches are linked to this Rope batch.</p>'}
+      </section>` : ''}
+      ${isRope ? '' : ownLifecycleSection}
+      <section class="report-section"><h2>Change history</h2>
+        <table><thead><tr><th>Action</th><th>Field</th><th>Previous value</th><th>New value / details</th><th>Recorded by</th><th>Recorded at</th></tr></thead>
+        <tbody>${auditRows || '<tr><td colspan="6">No change history recorded.</td></tr>'}</tbody></table>
+      </section>
       </body></html>`
 
     printWindow.document.write(html)
