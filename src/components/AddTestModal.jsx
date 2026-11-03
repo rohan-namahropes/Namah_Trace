@@ -2,6 +2,11 @@ import React, { useState } from 'react'
 import { X, AlertCircle } from 'lucide-react'
 import { EvidenceFileInput, getEvidenceFileError } from './EvidenceFileInput'
 
+function getCurrentLocalDateTime() {
+  const localDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 16)
+}
+
 const TEST_PRESETS = {
   flat_yarn: ['Breaking Strength', 'Elongation', 'Denier', 'BWS', 'HAS', 'Incoming Inspection'],
   yarn: ['Breaking Strength', 'Elongation', 'Denier', 'TPM', 'Twist Uniformity', 'BWS', 'HAS'],
@@ -16,7 +21,7 @@ const TEST_PRESETS = {
   ],
 }
 
-export function AddTestModal({ entityType, onClose, onSave, processes = [] }) {
+export function AddTestModal({ entityType, samples = [], onClose, onSave, processes = [] }) {
   const [testName, setTestName] = useState('')
   const [value, setValue] = useState('')
   const [unit, setUnit] = useState('')
@@ -25,6 +30,8 @@ export function AddTestModal({ entityType, onClose, onSave, processes = [] }) {
   const [result, setResult] = useState('Pass')
   const [remarks, setRemarks] = useState('')
   const [processId, setProcessId] = useState('')
+  const [sampleId, setSampleId] = useState('')
+  const [testedAt, setTestedAt] = useState(getCurrentLocalDateTime)
   const [evidenceFile, setEvidenceFile] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -56,13 +63,15 @@ export function AddTestModal({ entityType, onClose, onSave, processes = [] }) {
         result,
         remarks: remarks.trim(),
         processId: processId || null,
+        sampleId: sampleId.trim(),
+        testedAt,
         evidenceFile,
       })
       if (savedTest?.error) throw savedTest.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save test record')
-      if (err.recordSaved) {
+      if (err.recordSaved || err.operationCommitted) {
         onClose()
         return
       }
@@ -151,6 +160,43 @@ export function AddTestModal({ entityType, onClose, onSave, processes = [] }) {
                 <option value="In Spec">In Spec</option>
                 <option value="Flagged">Flagged</option>
               </select>
+            </label>
+          </div>
+
+          <div className="form-grid-2">
+            <label className="form-field">
+              <span>{entityType === 'flat_yarn' ? 'Flat Yarn cone / sample *' : 'Sample / Cone ID (Optional)'}</span>
+              {entityType === 'flat_yarn' ? (
+                <>
+                  <select required value={sampleId} onChange={(e) => setSampleId(e.target.value)}>
+                    <option value="">Select a cone / sample</option>
+                    {samples.map((sample) => (
+                      <option key={sample.id} value={sample.sample_id}>{sample.sample_id}</option>
+                    ))}
+                  </select>
+                  <small className="field-hint">Add repeated readings for this cone. Its mean contributes equally to the batch average.</small>
+                  {samples.length === 0 && <small className="field-warning">Add a cone in the Cone samples section before recording measurements.</small>}
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sample 1"
+                    value={sampleId}
+                    onChange={(e) => setSampleId(e.target.value)}
+                  />
+                  <small className="field-hint">Use the same ID to group repeated measurements from one sample.</small>
+                </>
+              )}
+            </label>
+            <label className="form-field">
+              <span>When tested</span>
+              <input
+                type="datetime-local"
+                required
+                value={testedAt}
+                onChange={(e) => setTestedAt(e.target.value)}
+              />
             </label>
           </div>
 

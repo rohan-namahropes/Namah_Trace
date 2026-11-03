@@ -18,6 +18,11 @@ function normalizeYarnPattern(value) {
     .replace(/[^A-Za-z0-9_-]/g, '')
 }
 
+function getCurrentLocalDateTime() {
+  const localDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 16)
+}
+
 export function CreateEntityModal({
   initialType = 'flat_yarn',
   availableFlatYarns = [],
@@ -35,8 +40,10 @@ export function CreateEntityModal({
   // Flat Yarn fields
   const [flatBatchId, setFlatBatchId] = useState('')
   const [supplier, setSupplier] = useState('')
+  const [flatDenier, setFlatDenier] = useState('')
   const [flatQuantity, setFlatQuantity] = useState('')
   const [flatUnit, setFlatUnit] = useState('kg')
+  const [flatOccurredAt, setFlatOccurredAt] = useState(() => getCurrentLocalDateTime())
   const [flatCriticalThreshold, setFlatCriticalThreshold] = useState('')
   const [flatNotes, setFlatNotes] = useState('')
 
@@ -58,6 +65,10 @@ export function CreateEntityModal({
   )
   const [yarnProcessType, setYarnProcessType] = useState('T')
   const [yarnPatternValue, setYarnPatternValue] = useState('1680')
+  const [yarnTwistDirection, setYarnTwistDirection] = useState('')
+  const [yarnTwistOther, setYarnTwistOther] = useState('')
+  const [yarnCategory, setYarnCategory] = useState('')
+  const [yarnOccurredAt, setYarnOccurredAt] = useState(() => getCurrentLocalDateTime())
   const [yarnInputQuantity, setYarnInputQuantity] = useState('')
   const [yarnOutputQuantity, setYarnOutputQuantity] = useState('')
   const [yarnUnit, setYarnUnit] = useState('kg')
@@ -68,8 +79,12 @@ export function CreateEntityModal({
   const [ropeBatchId, setRopeBatchId] = useState('')
   const [selectedParentYarnIds, setSelectedParentYarnIds] = useState([])
   const [ropeInputQuantities, setRopeInputQuantities] = useState({})
+  const [ropeComponents, setRopeComponents] = useState({})
   const [ropeQuantity, setRopeQuantity] = useState('')
+  const [ropeTargetLength, setRopeTargetLength] = useState('')
+  const [ropeGramsPerMeter, setRopeGramsPerMeter] = useState('')
   const [ropeUnit, setRopeUnit] = useState('meters')
+  const [ropeOccurredAt, setRopeOccurredAt] = useState(() => getCurrentLocalDateTime())
   const [ropeNotes, setRopeNotes] = useState('')
 
   const hasAvailableMaterial = (entity) =>
@@ -78,6 +93,23 @@ export function CreateEntityModal({
     && !entity.batch_id?.toUpperCase().startsWith('INTAKE-')
 
   const selectedFlatYarn = availableFlatYarns.find((entity) => entity.id === selectedParentFlatYarnId)
+  const ropeCalculatedTotalKg = ropeTargetLength && ropeGramsPerMeter
+    && Number.isFinite(Number(ropeTargetLength))
+    && Number.isFinite(Number(ropeGramsPerMeter))
+    && Number(ropeTargetLength) > 0
+    && Number(ropeGramsPerMeter) > 0
+    ? Number(ropeTargetLength) * Number(ropeGramsPerMeter) / 1000
+    : null
+  const ropeCompositionTotal = selectedParentYarnIds.reduce(
+    (total, parentId) => total + Number(ropeComponents[parentId]?.percentage || 0),
+    0
+  )
+  const weightInParentUnit = (weightKg, unit) => {
+    const normalizedUnit = String(unit || '').trim().toLowerCase()
+    if (normalizedUnit === 'kg') return weightKg
+    if (normalizedUnit === 'lbs') return weightKg * 2.2046226218
+    return null
+  }
   const estimatedYarnOutput = selectedFlatYarn
     && selectedFlatYarn.unit === yarnUnit
     && yarnInputQuantity
@@ -120,8 +152,10 @@ export function CreateEntityModal({
         const res = await onCreateFlatYarn({
           batchId: flatBatchId.trim(),
           supplier: supplier.trim(),
+          denier: flatDenier.trim(),
           quantity: flatQuantity ? Number(flatQuantity) : null,
           unit: flatUnit,
+          occurredAt: flatOccurredAt,
           criticalQuantityThreshold: isAdmin && flatCriticalThreshold !== ''
             ? Number(flatCriticalThreshold)
             : null,
@@ -133,6 +167,10 @@ export function CreateEntityModal({
         if (!yarnBatchId.trim()) throw new Error('Yarn Batch ID is required (e.g. 123-T1680 or 123-Pvalue).')
         if (!selectedParentFlatYarnId) throw new Error('You must select exactly one parent Flat Yarn batch.')
         if (!yarnPatternValue.trim()) throw new Error('Enter a denier or plying value.')
+        if (!yarnTwistDirection) throw new Error('Select the Yarn twist direction.')
+        if (yarnTwistDirection === 'Other' && !yarnTwistOther.trim()) {
+          throw new Error('Describe the other Yarn twist direction.')
+        }
         if (
           !Number.isFinite(Number(wastagePercentage))
           || Number(wastagePercentage) < 0
@@ -154,6 +192,11 @@ export function CreateEntityModal({
           treatment: yarnProcessType === 'T'
             ? `Twisting ${yarnPatternValue.trim()} denier`
             : `Plying ${yarnPatternValue.trim()}`,
+          denier: yarnProcessType === 'T' ? yarnPatternValue.trim() : '',
+          twistDirection: yarnTwistDirection,
+          twistDirectionOther: yarnTwistOther.trim(),
+          yarnCategory,
+          occurredAt: yarnOccurredAt,
           inputQuantity: Number(yarnInputQuantity),
           inputUnit: flatParent?.unit,
           quantity: yarnOutputQuantity ? Number(yarnOutputQuantity) : null,
@@ -167,9 +210,36 @@ export function CreateEntityModal({
         if (selectedParentYarnIds.length === 0) {
           throw new Error('You must select at least one parent Yarn Batch for composition.')
         }
+        if (Boolean(ropeTargetLength) !== Boolean(ropeGramsPerMeter)) {
+          throw new Error('Enter both target length and grams per meter to calculate Rope material, or leave both empty.')
+        }
+        if (ropeTargetLength && (!Number.isFinite(Number(ropeTargetLength)) || Number(ropeTargetLength) <= 0)) {
+          throw new Error('Target length must be a finite, positive number.')
+        }
+        if (ropeGramsPerMeter && (!Number.isFinite(Number(ropeGramsPerMeter)) || Number(ropeGramsPerMeter) <= 0)) {
+          throw new Error('Grams per meter must be a finite, positive number.')
+        }
+        if (Math.abs(ropeCompositionTotal - 100) > 0.000001) {
+          throw new Error('Yarn component percentages must total 100%.')
+        }
         const allocations = selectedParentYarnIds.map((parentEntityId) => {
           const parent = availableYarns.find((item) => item.id === parentEntityId)
-          const inputQuantity = ropeInputQuantities[parentEntityId]
+          const component = ropeComponents[parentEntityId] || {}
+          if (!String(component.role || '').trim()) {
+            throw new Error(`Enter a component role for Yarn Batch ${parent?.batch_id || ''}.`)
+          }
+          if (!Number.isFinite(Number(component.percentage)) || Number(component.percentage) <= 0) {
+            throw new Error(`Enter a positive composition percentage for Yarn Batch ${parent?.batch_id || ''}.`)
+          }
+          const calculatedKg = ropeCalculatedTotalKg == null
+            ? null
+            : ropeCalculatedTotalKg * Number(component.percentage) / 100
+          const inputQuantity = calculatedKg == null
+            ? ropeInputQuantities[parentEntityId]
+            : weightInParentUnit(calculatedKg, parent?.unit)
+          if (calculatedKg != null && inputQuantity == null) {
+            throw new Error(`Calculated Rope composition requires Yarn Batch ${parent?.batch_id} to use kg or lbs.`)
+          }
           if (!inputQuantity || Number(inputQuantity) <= 0) {
             throw new Error(`Enter a positive quantity consumed from Yarn Batch ${parent?.batch_id || ''}.`)
           }
@@ -180,6 +250,8 @@ export function CreateEntityModal({
             parentEntityId,
             quantity: Number(inputQuantity),
             unit: parent?.unit,
+            componentRole: String(component.role).trim(),
+            compositionPercentage: Number(component.percentage),
           }
         })
 
@@ -189,12 +261,20 @@ export function CreateEntityModal({
           quantity: ropeQuantity ? Number(ropeQuantity) : null,
           unit: ropeUnit,
           notes: ropeNotes.trim(),
+          targetLength: ropeTargetLength ? Number(ropeTargetLength) : null,
+          gramsPerMeter: ropeGramsPerMeter ? Number(ropeGramsPerMeter) : null,
+          occurredAt: ropeOccurredAt,
         })
         if (res.error) throw res.error
       }
 
       onClose()
     } catch (err) {
+      if (err.operationCommitted) {
+        onClose()
+        setBusy(false)
+        return
+      }
       setError(err.message || 'Failed to create entity')
       setBusy(false)
     }
@@ -298,7 +378,17 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Initial Quantity (Optional)</span>
+                  <span>Denier (Optional)</span>
+                  <input
+                    type="text"
+                    placeholder="Incoming Flat Yarn denier"
+                    value={flatDenier}
+                    onChange={(e) => setFlatDenier(e.target.value)}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Received Weight / Quantity (Optional)</span>
                   <input
                     type="number"
                     step="any"
@@ -307,7 +397,8 @@ export function CreateEntityModal({
                     onChange={(e) => setFlatQuantity(e.target.value)}
                   />
                 </label>
-
+              </div>
+              <div className="form-grid-2">
                 <label className="form-field">
                   <span>Unit</span>
                   <select value={flatUnit} onChange={(e) => setFlatUnit(e.target.value)}>
@@ -315,6 +406,16 @@ export function CreateEntityModal({
                     <option value="lbs">lbs (Pounds)</option>
                     <option value="meters">meters</option>
                   </select>
+                </label>
+                <label className="form-field">
+                  <span>When received</span>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={flatOccurredAt}
+                    onChange={(e) => setFlatOccurredAt(e.target.value)}
+                  />
+                  <small className="field-hint">Record time is saved separately automatically.</small>
                 </label>
               </div>
 
@@ -419,6 +520,37 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
+                  <span>Twist direction *</span>
+                  <select value={yarnTwistDirection} onChange={(e) => setYarnTwistDirection(e.target.value)}>
+                    <option value="">Select direction</option>
+                    <option value="S">S twist</option>
+                    <option value="Z">Z twist</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>Yarn category (Optional)</span>
+                  <select value={yarnCategory} onChange={(e) => setYarnCategory(e.target.value)}>
+                    <option value="">Not specified</option>
+                    <option value="Sheath Yarn">Sheath Yarn</option>
+                    <option value="Core Yarn">Core Yarn</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+              </div>
+              {yarnTwistDirection === 'Other' && (
+                <div className="form-grid-2">
+                  {yarnTwistDirection === 'Other' ? (
+                    <label className="form-field">
+                      <span>Other twist direction *</span>
+                      <input value={yarnTwistOther} onChange={(e) => setYarnTwistOther(e.target.value)} />
+                    </label>
+                  ) : <span />}
+                </div>
+              )}
+
+              <div className="form-grid-2">
+                <label className="form-field">
                   <span>Generated Yarn Batch ID *</span>
                   <input
                     type="text"
@@ -428,6 +560,15 @@ export function CreateEntityModal({
                     onChange={(e) => setYarnBatchId(e.target.value)}
                   />
                   <small className="field-hint">Generated from the parent batch and pattern; edit only if needed to avoid a duplicate ID.</small>
+                </label>
+                <label className="form-field">
+                  <span>When manufactured</span>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={yarnOccurredAt}
+                    onChange={(e) => setYarnOccurredAt(e.target.value)}
+                  />
                 </label>
               </div>
 
@@ -564,28 +705,73 @@ export function CreateEntityModal({
 
               {selectedParentYarnIds.map((parentId) => {
                 const parent = availableYarns.find((item) => item.id === parentId)
+                const component = ropeComponents[parentId] || {}
+                const calculatedKg = ropeCalculatedTotalKg == null
+                  ? null
+                  : ropeCalculatedTotalKg * Number(component.percentage || 0) / 100
+                const calculatedQuantity = calculatedKg == null
+                  ? null
+                  : weightInParentUnit(calculatedKg, parent?.unit)
                 return (
-                  <label className="form-field" key={parentId}>
-                    <span>Quantity Consumed from Yarn Batch {parent?.batch_id} *</span>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      required
-                      max={parent?.quantityRemaining}
-                      value={ropeInputQuantities[parentId] || ''}
-                      onChange={(e) => setRopeInputQuantities((current) => ({
-                        ...current,
-                        [parentId]: e.target.value,
-                      }))}
-                      placeholder={`Available: ${parent?.quantityRemaining} ${parent?.unit}`}
-                    />
-                    <small className="field-hint">
-                      Available: {parent?.quantityRemaining} {parent?.unit}
-                    </small>
-                  </label>
+                  <div className="form-grid-3" key={parentId}>
+                    <label className="form-field">
+                      <span>Component role · {parent?.batch_id} *</span>
+                      <input
+                        required
+                        placeholder="e.g. Sheath or Core"
+                        value={component.role || ''}
+                        onChange={(e) => setRopeComponents((current) => ({
+                          ...current,
+                          [parentId]: { ...current[parentId], role: e.target.value },
+                        }))}
+                      />
+                    </label>
+                    <label className="form-field">
+                      <span>Composition (%) *</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        max="100"
+                        required
+                        value={component.percentage || ''}
+                        onChange={(e) => setRopeComponents((current) => ({
+                          ...current,
+                          [parentId]: { ...current[parentId], percentage: e.target.value },
+                        }))}
+                      />
+                    </label>
+                    <label className="form-field">
+                      <span>Material consumed ({parent?.unit}) *</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        required
+                        max={parent?.quantityRemaining}
+                        readOnly={calculatedQuantity != null}
+                        value={calculatedQuantity == null
+                          ? ropeInputQuantities[parentId] || ''
+                          : calculatedQuantity.toFixed(4).replace(/\.?0+$/, '')}
+                        onChange={(e) => setRopeInputQuantities((current) => ({
+                          ...current,
+                          [parentId]: e.target.value,
+                        }))}
+                        placeholder={`Available: ${parent?.quantityRemaining}`}
+                      />
+                      <small className="field-hint">
+                        {calculatedQuantity == null
+                          ? `Available: ${parent?.quantityRemaining} ${parent?.unit}`
+                          : `Calculated from total ${ropeCalculatedTotalKg.toFixed(3)} kg`}
+                      </small>
+                    </label>
+                  </div>
                 )
               })}
+              <div className="form-info-callout blue">
+                <strong>Composition total: {ropeCompositionTotal.toFixed(2)}%</strong>
+                <p>Enter each selected Yarn batch’s role and share. Shares must total 100%.</p>
+              </div>
 
               <div className="form-grid-2">
                 <label className="form-field">
@@ -598,22 +784,60 @@ export function CreateEntityModal({
                     onChange={(e) => setRopeBatchId(e.target.value)}
                   />
                 </label>
+                <label className="form-field">
+                  <span>When manufactured</span>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={ropeOccurredAt}
+                    onChange={(e) => setRopeOccurredAt(e.target.value)}
+                  />
+                </label>
 
                 <label className="form-field">
-                  <span>Manufactured Length / Quantity</span>
+                  <span>Target rope length for material estimate (Optional)</span>
                   <input
                     type="number"
                     step="any"
-                    placeholder="e.g. 300"
+                    min="0"
+                    placeholder="e.g. 1000"
+                    value={ropeTargetLength}
+                    onChange={(e) => setRopeTargetLength(e.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Grams per meter (Optional)</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="e.g. 75.5"
+                    value={ropeGramsPerMeter}
+                    onChange={(e) => setRopeGramsPerMeter(e.target.value)}
+                  />
+                </label>
+              </div>
+              {ropeCalculatedTotalKg != null && (
+                <div className="form-info-callout blue">
+                  <strong>Estimated total material: {ropeCalculatedTotalKg.toFixed(3)} kg</strong>
+                  <p>Calculated as target length × grams per meter ÷ 1,000.</p>
+                </div>
+              )}
+
+              <div className="form-grid-2">
+                <label className="form-field">
+                  <span>Actual manufactured quantity (Optional)</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Produced quantity"
                     value={ropeQuantity}
                     onChange={(e) => setRopeQuantity(e.target.value)}
                   />
                 </label>
-              </div>
-
-              <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Unit</span>
+                  <span>Output unit</span>
                   <select value={ropeUnit} onChange={(e) => setRopeUnit(e.target.value)}>
                     <option value="meters">meters</option>
                     <option value="coils">coils</option>
@@ -621,7 +845,8 @@ export function CreateEntityModal({
                     <option value="kg">kg</option>
                   </select>
                 </label>
-
+              </div>
+              <div className="form-grid-2">
                 <label className="form-field">
                   <span>Specifications / Construction</span>
                   <input

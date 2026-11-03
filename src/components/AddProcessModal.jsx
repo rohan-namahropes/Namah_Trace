@@ -1,49 +1,42 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { X, AlertCircle } from 'lucide-react'
 import { EvidenceFileInput, getEvidenceFileError } from './EvidenceFileInput'
 
-const PROCESS_PRESETS = {
-  yarn: [
-    { name: 'Twisting', spec: '72' },
-    { name: 'Twisting', spec: '80' },
-    { name: 'Twisting', spec: '90' },
-    { name: 'Twisting', spec: '100' },
-    { name: 'Heat Setting', spec: '' },
-    { name: 'Knitting', spec: 'Core bundle strand knitting' },
-    { name: 'Dyeing', spec: 'Continuous dip liquor application' },
-  ],
-  rope: [
-    { name: 'Braiding', spec: '16-carrier braider' },
-    { name: 'Heat Setting', spec: '' },
-    { name: 'Quality Control', spec: '' },
-    { name: 'Other Treatment', spec: '' },
-    { name: 'Packing', spec: '' },
-  ],
-  flat_yarn: [
-    { name: 'Incoming Inspection', spec: '' },
-    { name: 'Other', spec: '' },
-  ],
+function getCurrentLocalDateTime() {
+  const localDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 16)
 }
 
-export function AddProcessModal({ entityType, onClose, onSave }) {
-  const [processName, setProcessName] = useState('')
+export function AddProcessModal({
+  entityType,
+  processSpecifications = [],
+  processSpecificationsError = '',
+  onOpenSpecification,
+  onClose,
+  onSave,
+}) {
+  const families = useMemo(
+    () => [...new Set(processSpecifications.map((item) => item.process_family))].sort(),
+    [processSpecifications]
+  )
+  const [processFamily, setProcessFamily] = useState('')
+  const [processSpecificationId, setProcessSpecificationId] = useState('')
   const [specification, setSpecification] = useState('')
   const [heatSettingPerformed, setHeatSettingPerformed] = useState('yes')
   const [temperature, setTemperature] = useState('')
+  const [performedAt, setPerformedAt] = useState(getCurrentLocalDateTime)
   const [remarks, setRemarks] = useState('')
   const [evidenceFile, setEvidenceFile] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const handleSelectPreset = (p) => {
-    setProcessName(p.name)
-    if (!specification) setSpecification(p.spec)
-  }
+  const selectedType = processSpecifications.find((item) => item.id === processSpecificationId)
+  const processTypes = processSpecifications.filter((item) => item.process_family === processFamily)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!processName.trim()) {
-      setError('Process name is required.')
+    if (!selectedType) {
+      setError('Select a configured process family and type.')
       return
     }
 
@@ -54,7 +47,7 @@ export function AddProcessModal({ entityType, onClose, onSave }) {
         const fileError = getEvidenceFileError(evidenceFile)
         if (fileError) throw new Error(fileError)
       }
-      const processSpecification = processName.trim().toLowerCase() === 'heat setting'
+      const processSpecification = processFamily.trim().toLowerCase() === 'heat setting'
         ? [
           heatSettingPerformed === 'yes' ? 'Performed' : 'Not performed',
           heatSettingPerformed === 'yes' && temperature.trim()
@@ -64,16 +57,19 @@ export function AddProcessModal({ entityType, onClose, onSave }) {
         ].filter(Boolean).join(' · ')
         : specification.trim()
       const result = await onSave({
-        processName: processName.trim(),
+        processFamily,
+        processType: selectedType.type_name,
+        processSpecificationId: selectedType.id,
         specification: processSpecification,
         remarks: remarks.trim(),
+        performedAt,
         evidenceFile,
       })
       if (result?.error) throw result.error
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save process record')
-      if (err.recordSaved) {
+      if (err.recordSaved || err.operationCommitted) {
         onClose()
         return
       }
@@ -96,54 +92,75 @@ export function AddProcessModal({ entityType, onClose, onSave }) {
           </button>
         </div>
 
-        {/* Process Presets */}
-        <div className="preset-chips-section">
-          <small className="preset-label">PROCESS TEMPLATES:</small>
-          <div className="preset-chips-list">
-            {(PROCESS_PRESETS[entityType] || []).map((p) => (
-              <button
-                key={`${p.name}-${p.spec}`}
-                type="button"
-                className={`preset-chip-btn ${processName === p.name ? 'active' : ''}`}
-                onClick={() => handleSelectPreset(p)}
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {error && (
           <div className="modal-error-alert">
             <AlertCircle size={16} />
             <span>{error}</span>
           </div>
         )}
+        {processSpecificationsError && (
+          <div className="modal-error-alert" role="alert">{processSpecificationsError}</div>
+        )}
 
         <form onSubmit={handleSubmit} className="modal-form">
-          <label className="form-field">
-            <span>Process Name *</span>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Heat Setting, Twisting, Braiding, Dyeing..."
-              value={processName}
-              onChange={(e) => setProcessName(e.target.value)}
-            />
-          </label>
+          <div className="form-grid-2">
+            <label className="form-field">
+              <span>Process family *</span>
+              <select
+                required
+                value={processFamily}
+                onChange={(e) => {
+                  setProcessFamily(e.target.value)
+                  setProcessSpecificationId('')
+                }}
+              >
+                <option value="">Select process family</option>
+                {families.map((family) => <option key={family} value={family}>{family}</option>)}
+              </select>
+            </label>
+            <label className="form-field">
+              <span>Process type *</span>
+              <select
+                required
+                value={processSpecificationId}
+                onChange={(e) => setProcessSpecificationId(e.target.value)}
+                disabled={!processFamily}
+              >
+                <option value="">Select process type</option>
+                {processTypes.map((item) => (
+                  <option key={item.id} value={item.id}>{item.type_name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {selectedType && (
+            <div className="form-field">
+              <span>Type specification</span>
+              {selectedType.specification_file_name
+                ? <button
+                  type="button"
+                  className="text-action"
+                  onClick={() => onOpenSpecification?.(selectedType.id)}
+                >
+                  View {selectedType.specification_file_name}
+                </button>
+                : <small className="field-hint">No specification file has been uploaded for this type yet.</small>}
+            </div>
+          )}
 
           <label className="form-field">
-            <span>Specification / Operational Parameters</span>
+            <span>Actual operational parameters</span>
             <input
               type="text"
-              placeholder="e.g. 180°C / 30 min, Spindle speed 7200 RPM, tension 45N..."
+              placeholder="e.g. 180°C / 30 min, spindle speed, tension..."
               value={specification}
               onChange={(e) => setSpecification(e.target.value)}
             />
             <small className="field-hint">Key machine settings, temperatures, duration, or speeds</small>
           </label>
 
-          {processName.trim().toLowerCase() === 'heat setting' && (
+          {processFamily.trim().toLowerCase() === 'heat setting' && (
             <div className="form-grid-2">
               <label className="form-field">
                 <span>Heat setting performed?</span>
@@ -165,6 +182,16 @@ export function AddProcessModal({ entityType, onClose, onSave }) {
               )}
             </div>
           )}
+
+          <label className="form-field">
+            <span>When process happened</span>
+            <input
+              type="datetime-local"
+              required
+              value={performedAt}
+              onChange={(e) => setPerformedAt(e.target.value)}
+            />
+          </label>
 
           <label className="form-field">
             <span>Process Remarks / Machine Notes</span>

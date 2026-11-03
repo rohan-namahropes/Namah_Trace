@@ -4,6 +4,7 @@ import {
   listEntities,
   getEntity,
   createFlatYarn,
+  createEntitySample,
   createYarnBatch,
   createRopeBatch,
   updateEntityBasicInfo,
@@ -20,6 +21,10 @@ import {
   getEvidenceDownloadUrl,
   listDismissedStockAlerts,
   dismissStockAlerts,
+  listProcessTypeSpecifications,
+  saveProcessTypeSpecification,
+  deleteProcessTypeSpecification,
+  getProcessTypeSpecificationUrl,
 } from './lib/api'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
@@ -36,6 +41,7 @@ const AddTestModal = lazy(() => import('./components/AddTestModal').then((module
 const AddProcessModal = lazy(() => import('./components/AddProcessModal').then((module) => ({ default: module.AddProcessModal })))
 const UploadEvidenceModal = lazy(() => import('./components/UploadEvidenceModal').then((module) => ({ default: module.UploadEvidenceModal })))
 const SqlMigrationModal = lazy(() => import('./components/SqlMigrationModal').then((module) => ({ default: module.SqlMigrationModal })))
+const ProcessSpecificationAdminModal = lazy(() => import('./components/ProcessSpecificationAdminModal').then((module) => ({ default: module.ProcessSpecificationAdminModal })))
 
 export function App() {
   const [session, setSession] = useState(null)
@@ -63,6 +69,9 @@ export function App() {
   const [uploadEvidenceModalOpen, setUploadEvidenceModalOpen] = useState(false)
   const [evidenceTarget, setEvidenceTarget] = useState(null)
   const [sqlModalOpen, setSqlModalOpen] = useState(false)
+  const [processSpecificationModalOpen, setProcessSpecificationModalOpen] = useState(false)
+  const [processSpecifications, setProcessSpecifications] = useState([])
+  const [processSpecificationsError, setProcessSpecificationsError] = useState('')
 
   // 1. Check Auth & Session
   useEffect(() => {
@@ -307,6 +316,11 @@ export function App() {
     return finishMutation(res, null)
   }
 
+  const handleCreateEntitySample = async (sampleId) => {
+    if (!selectedEntityId) return
+    return finishMutation(await createEntitySample(selectedEntityId, sampleId))
+  }
+
   const handleCreateYarnBatch = async (params) => {
     const res = await createYarnBatch(params)
     if (res.data) setSelectedEntityId(res.data.id)
@@ -364,6 +378,56 @@ export function App() {
     const { evidenceFile, ...fields } = proc
     const result = await addProcess(selectedEntityId, fields)
     return finishRecordWithEvidence(result, evidenceFile, 'process')
+  }
+
+  const loadProcessSpecifications = async () => {
+    const result = await listProcessTypeSpecifications()
+    if (result.error) {
+      setProcessSpecificationsError(result.error.message || 'Unable to load process specifications. Apply the Factorflow development migration.')
+      return result
+    }
+    setProcessSpecifications(result.data)
+    setProcessSpecificationsError('')
+    return result
+  }
+
+  const handleOpenAddProcessModal = async () => {
+    setAddProcessModalOpen(true)
+    await loadProcessSpecifications()
+  }
+
+  const handleOpenProcessSpecificationAdmin = async () => {
+    setProcessSpecificationModalOpen(true)
+    await loadProcessSpecifications()
+  }
+
+  const handleSaveProcessSpecification = async (fields) => {
+    const result = await saveProcessTypeSpecification(fields)
+    if (result.data || result.error?.operationCommitted) await loadProcessSpecifications()
+    return result
+  }
+
+  const handleDeleteProcessSpecification = async (specificationId) => {
+    const result = await deleteProcessTypeSpecification(specificationId)
+    if (result.data || result.error?.operationCommitted) await loadProcessSpecifications()
+    return result
+  }
+
+  const handleOpenProcessSpecificationFile = async (specificationId) => {
+    const fileWindow = window.open('about:blank', '_blank')
+    if (!fileWindow) {
+      setDataError('Allow pop-ups to view process specifications.')
+      return { error: new Error('Allow pop-ups to view process specifications.') }
+    }
+    fileWindow.opener = null
+    const result = await getProcessTypeSpecificationUrl(specificationId)
+    if (result.error) {
+      fileWindow.close()
+      setDataError(result.error.message)
+      return result
+    }
+    fileWindow.location.href = result.data
+    return result
   }
 
   // Evidence Handlers
@@ -483,6 +547,7 @@ export function App() {
         isAdmin={userProfile.role === 'admin'}
         storageMode={storageMode}
         onOpenSqlModal={() => setSqlModalOpen(true)}
+        onOpenProcessSpecifications={handleOpenProcessSpecificationAdmin}
       />
 
       <div className="main-layout-wrap">
@@ -520,8 +585,9 @@ export function App() {
               onViewHistory={() => handleNavigateView('audit')}
               onOpenEditModal={() => setEditBasicModalOpen(true)}
               onOpenAddParamModal={() => setAddParamModalOpen(true)}
+              onCreateSample={handleCreateEntitySample}
               onOpenAddTestModal={() => setAddTestModalOpen(true)}
-              onOpenAddProcessModal={() => setAddProcessModalOpen(true)}
+              onOpenAddProcessModal={handleOpenAddProcessModal}
               onOpenUploadEvidenceModal={() => {
                 setEvidenceTarget(null)
                 setUploadEvidenceModalOpen(true)
@@ -594,6 +660,8 @@ export function App() {
 
       {addParamModalOpen && selectedEntityData && (
         <AddParameterModal
+          entityType={selectedEntityData.type}
+          samples={selectedEntityData.samples || []}
           onClose={() => setAddParamModalOpen(false)}
           onSave={handleAddParameter}
         />
@@ -602,6 +670,7 @@ export function App() {
       {addTestModalOpen && selectedEntityData && (
         <AddTestModal
           entityType={selectedEntityData.type}
+          samples={selectedEntityData.samples || []}
           processes={selectedEntityData.processes || []}
           onClose={() => setAddTestModalOpen(false)}
           onSave={handleAddTest}
@@ -611,8 +680,23 @@ export function App() {
       {addProcessModalOpen && selectedEntityData && (
         <AddProcessModal
           entityType={selectedEntityData.type}
+          processSpecifications={processSpecifications.filter((item) => (
+            item.process_family && item.type_name
+          ))}
+          processSpecificationsError={processSpecificationsError}
+          onOpenSpecification={handleOpenProcessSpecificationFile}
           onClose={() => setAddProcessModalOpen(false)}
           onSave={handleAddProcess}
+        />
+      )}
+
+      {processSpecificationModalOpen && userProfile.role === 'admin' && (
+        <ProcessSpecificationAdminModal
+          specifications={processSpecifications}
+          error={processSpecificationsError}
+          onSave={handleSaveProcessSpecification}
+          onDelete={handleDeleteProcessSpecification}
+          onClose={() => setProcessSpecificationModalOpen(false)}
         />
       )}
 

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   ArrowLeft,
   Anchor,
@@ -11,6 +11,7 @@ import {
   Layers,
   Paperclip,
   Pencil,
+  Plus,
   Wrench,
 } from 'lucide-react'
 import { GenealogyTree } from './GenealogyTree'
@@ -51,6 +52,88 @@ function formatDateTime(value) {
   })
 }
 
+function calculateTestAverages(tests) {
+  const groups = new Map()
+  for (const test of tests) {
+    const value = String(test.value ?? '').trim()
+    if (test.result === 'Fail' || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) continue
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) continue
+    const key = `${test.test_name}\u0000${test.unit || ''}`
+    if (!groups.has(key)) {
+      groups.set(key, { name: test.test_name, unit: test.unit || '', values: [], samples: new Map() })
+    }
+    const group = groups.get(key)
+    group.values.push(numericValue)
+    if (test.sample_id) {
+      const sampleValues = group.samples.get(test.sample_id) || []
+      sampleValues.push(numericValue)
+      group.samples.set(test.sample_id, sampleValues)
+    }
+  }
+  return [...groups.values()].map((group) => ({
+    name: group.name,
+    unit: group.unit,
+    count: group.values.length,
+    average: group.values.reduce((sum, value) => sum + value, 0) / group.values.length,
+    samples: [...group.samples].map(([sampleId, values]) => ({
+      sampleId,
+      count: values.length,
+      average: values.reduce((sum, value) => sum + value, 0) / values.length,
+    })),
+  }))
+}
+
+function calculateFlatYarnAverages(parameters, tests, samples) {
+  const sampleNames = new Map(
+    samples.map((sample) => [sample.sample_id.toLowerCase(), sample.sample_id])
+  )
+  const groups = new Map()
+  const measurements = [
+    ...parameters.map((item) => ({ name: item.name, value: item.value, unit: item.unit, sampleId: item.sample_id })),
+    ...tests.map((item) => ({ name: item.test_name, value: item.value, unit: item.unit, sampleId: item.sample_id })),
+  ]
+
+  for (const measurement of measurements) {
+    const sampleId = String(measurement.sampleId || '').trim()
+    const canonicalSampleId = sampleNames.get(sampleId.toLowerCase())
+    const value = String(measurement.value ?? '').trim()
+    if (!canonicalSampleId || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) continue
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) continue
+    const name = String(measurement.name || '').trim()
+    const unit = String(measurement.unit || '').trim()
+    const key = `${name.toLowerCase()}\u0000${unit.toLowerCase()}`
+    if (!groups.has(key)) groups.set(key, { name, unit, samples: new Map() })
+    const group = groups.get(key)
+    const values = group.samples.get(canonicalSampleId) || []
+    values.push(numericValue)
+    group.samples.set(canonicalSampleId, values)
+  }
+
+  return [...groups.values()].map((group) => {
+    const sampleAverages = samples.map((sample) => {
+      const values = group.samples.get(sample.sample_id) || []
+      return {
+        sampleId: sample.sample_id,
+        count: values.length,
+        average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
+      }
+    })
+    const measuredSamples = sampleAverages.filter((sample) => sample.count > 0)
+    return {
+      name: group.name,
+      unit: group.unit,
+      count: measuredSamples.reduce((total, sample) => total + sample.count, 0),
+      sampleCount: measuredSamples.length,
+      average: measuredSamples.length
+        ? measuredSamples.reduce((total, sample) => total + sample.average, 0) / measuredSamples.length
+        : null,
+      samples: sampleAverages,
+    }
+  }).sort((left, right) => left.name.localeCompare(right.name) || left.unit.localeCompare(right.unit))
+}
+
 function typeIcon(type, size = 15) {
   if (type === 'flat_yarn') return <Layers size={size} />
   if (type === 'yarn') return <Cpu size={size} />
@@ -65,12 +148,14 @@ function getParentDisplayDetails(parent) {
     /\b(twist type|twist direction|direction of twist)\b/i.test(name)
     || /^twist$/i.test(name.trim())
   ))
-  const denier = denierMeasurement
+  const denier = parent.denier || (denierMeasurement
     ? `${denierMeasurement.value}${denierMeasurement.unit ? ` ${denierMeasurement.unit}` : ''}`
     : parent.type === 'yarn'
       ? parent.treatment?.match(/\b\d+(?:\.\d+)?\s*denier\b/i)?.[0] || ''
-      : ''
-  const twistType = twistMeasurement
+      : '')
+  const twistType = parent.twist_direction
+    ? `${parent.twist_direction === 'Other' ? parent.twist_direction_other || 'Other' : `${parent.twist_direction} twist`}`
+    : twistMeasurement
     ? `${twistMeasurement.name}: ${twistMeasurement.value}${twistMeasurement.unit ? ` ${twistMeasurement.unit}` : ''}`
     : ''
 
@@ -84,7 +169,9 @@ function getParentDisplayDetails(parent) {
   if (parent.type === 'yarn') {
     return [
       denier ? `Denier: ${denier}` : '',
-      twistType || (parent.treatment ? `Treatment: ${parent.treatment}` : ''),
+      twistType ? `Twist: ${twistType}` : '',
+      parent.yarn_category ? `Category: ${parent.yarn_category}` : '',
+      parent.treatment ? `Treatment: ${parent.treatment}` : '',
     ].filter(Boolean)
   }
 
@@ -107,7 +194,12 @@ export function EntityDetail({
   onDeleteParam,
   onDeleteTest,
   onUpdateStatus,
+  onCreateSample,
 }) {
+  const [newSampleId, setNewSampleId] = useState('')
+  const [sampleError, setSampleError] = useState('')
+  const [savingSample, setSavingSample] = useState(false)
+
   if (!entity) return null
 
   const genealogy = entity.genealogy || {
@@ -119,9 +211,30 @@ export function EntityDetail({
   }
   const parameters = entity.parameters || []
   const tests = entity.tests || []
+  const samples = entity.samples || []
   const processes = entity.processes || []
   const evidence = entity.evidence || []
   const auditLogs = entity.auditLogs || []
+  const testAverages = calculateTestAverages(tests)
+  const flatYarnAverages = entity.type === 'flat_yarn'
+    ? calculateFlatYarnAverages(parameters, tests, samples)
+    : []
+
+  const handleCreateSample = async (event) => {
+    event.preventDefault()
+    setSampleError('')
+    setSavingSample(true)
+    const result = await onCreateSample?.(newSampleId)
+    if (result?.error) {
+      setSampleError(result.error.message || 'Unable to add cone / sample.')
+      if (!result.error.operationCommitted) {
+        setSavingSample(false)
+        return
+      }
+    }
+    if (result?.data || result?.error?.operationCommitted) setNewSampleId('')
+    setSavingSample(false)
+  }
 
   const entries = [
     ...processes.map((item) => ({
@@ -147,7 +260,7 @@ export function EntityDetail({
       title: item.name,
       timestamp: item.created_at,
       recordedAt: item.created_at,
-      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
+      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''}${item.sample_id ? ` · Sample: ${item.sample_id}` : ''}`,
       remarks: item.remarks,
       evidenceTarget: 'parameter',
     })),
@@ -160,7 +273,7 @@ export function EntityDetail({
       title: item.test_name,
       timestamp: item.tested_at || item.created_at,
       recordedAt: item.created_at,
-      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
+      detail: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.sample_id ? ` · Sample: ${item.sample_id}` : ''}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
       remarks: item.remarks,
       actor: item.performed_by_name,
       evidenceTarget: 'test',
@@ -214,12 +327,14 @@ export function EntityDetail({
         batchId: edge.parentBatchId,
         type: edge.parentType,
         detail: edge.parentTreatment,
+        supplier: edge.parentSupplier,
       })
       nodesById.set(edge.childId, {
         id: edge.childId,
         batchId: edge.childBatchId,
         type: edge.childType,
         detail: edge.childTreatment,
+        supplier: edge.childSupplier,
       })
       incomingCounts.set(edge.parentId, incomingCounts.get(edge.parentId) || 0)
       incomingCounts.set(edge.childId, (incomingCounts.get(edge.childId) || 0) + 1)
@@ -231,6 +346,11 @@ export function EntityDetail({
     for (const [parentId, details] of parentDetailsById) {
       const node = nodesById.get(parentId)
       if (node) node.details = details
+    }
+    for (const node of nodesById.values()) {
+      if (node.type === 'flat_yarn' && node.supplier && !node.details?.length) {
+        node.details = [`Supplier: ${node.supplier}`]
+      }
     }
     const depthById = new Map()
     const ready = [...nodesById.values()]
@@ -323,6 +443,32 @@ export function EntityDetail({
         <td>${escapeHtml(formatDateTime(entry.recordedAt || entry.timestamp))}</td>
       </tr>
     `).join('')
+    const testAverageRows = testAverages.map((average) => {
+      const perSample = average.samples.map((sample) => (
+        `${sample.sampleId}: ${Number(sample.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''} (${sample.count})`
+      )).join(' · ')
+      return `<tr>
+        <td>${escapeHtml(average.name)}</td>
+        <td>${escapeHtml(`${Number(average.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''}`)}</td>
+        <td>${escapeHtml(average.count)}</td>
+        <td>${escapeHtml(perSample || '—')}</td>
+      </tr>`
+    }).join('')
+    const flatYarnAverageRows = flatYarnAverages.map((average) => {
+      const perSample = average.samples.map((sample) => (
+        `${sample.sampleId}: ${sample.count
+          ? `${Number(sample.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''} (${sample.count} readings)`
+          : '—'}`
+      )).join(' · ')
+      return `<tr>
+        <td>${escapeHtml(average.name)}</td>
+        <td>${escapeHtml(average.average == null ? '—' : `${Number(average.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''}`)}</td>
+        <td>${escapeHtml(`${average.sampleCount} cones · ${average.count} readings`)}</td>
+        <td>${escapeHtml(perSample || '—')}</td>
+      </tr>`
+    }).join('')
+    const averageRows = entity.type === 'flat_yarn' ? flatYarnAverageRows : testAverageRows
+    const averageHeading = entity.type === 'flat_yarn' ? 'Net averages (mean of cone means)' : 'Test averages'
     const auditRows = auditLogs.map((log) => `
       <tr>
         <td>${escapeHtml(log.action || '—')}</td>
@@ -335,6 +481,12 @@ export function EntityDetail({
     `).join('')
     const parentRecordBlocks = (entity.parentRecords || []).map((parent) => {
       const parentDetails = getParentDisplayDetails(parent)
+      const composition = (genealogy.parents || []).find((item) => item.entityId === parent.entityId)
+      if (composition?.componentRole) {
+        parentDetails.push(
+          `Component: ${composition.componentRole}${composition.compositionPercentage == null ? '' : ` · ${composition.compositionPercentage}%`}`
+        )
+      }
       const records = [
         ...parent.processes.map((item) => ({
           type: 'Process',
@@ -346,14 +498,14 @@ export function EntityDetail({
         ...parent.parameters.map((item) => ({
           type: 'Parameter',
           name: item.name,
-          details: `${item.value}${item.unit ? ` ${item.unit}` : ''}`,
+          details: `${item.value}${item.unit ? ` ${item.unit}` : ''}${item.sample_id ? ` · Sample: ${item.sample_id}` : ''}`,
           remarks: item.remarks,
           eventAt: item.created_at,
         })),
         ...parent.tests.map((item) => ({
           type: 'Test',
           name: item.test_name,
-          details: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
+          details: `${item.value}${item.unit ? ` ${item.unit}` : ''} · ${item.result || 'Pass'}${item.sample_id ? ` · Sample: ${item.sample_id}` : ''}${item.product_category ? ` · Category: ${item.product_category}` : ''}${item.applicable_standard ? ` · Standard: ${item.applicable_standard}` : ''}${item.process_name ? ` · Process: ${item.process_name}` : ''}`,
           remarks: item.remarks,
           eventAt: item.tested_at,
         })),
@@ -374,6 +526,7 @@ export function EntityDetail({
       </section>`
     }).join('')
     const ownLifecycleSection = `<section class="report-section"><h2>${isRope ? 'Rope batch records' : 'Lifecycle records'}</h2>
+      ${averageRows ? `<h3>${escapeHtml(averageHeading)}</h3><table><thead><tr><th>Property</th><th>${entity.type === 'flat_yarn' ? 'Net average' : 'Batch mean'}</th><th>Coverage</th><th>Per cone · readings</th></tr></thead><tbody>${averageRows}</tbody></table>` : ''}
       <table><thead><tr><th>Type</th><th>Record</th><th>Details</th><th>Remarks / evidence context</th><th>Recorded by</th><th>Event time</th><th>Record time</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7">No lifecycle records</td></tr>'}</tbody></table>
     </section>`
@@ -424,6 +577,7 @@ export function EntityDetail({
         <div><dt>Type</dt><dd>${escapeHtml(typeLabels[entity.type] || entity.type)}</dd></div>
         <div><dt>Status</dt><dd>${escapeHtml(entity.status || 'In Progress')}</dd></div>
         <div><dt>Created</dt><dd>${escapeHtml(formatDateTime(entity.created_at))}</dd></div>
+        <div><dt>Event time</dt><dd>${escapeHtml(formatDateTime(entity.occurred_at || entity.created_at))}</dd></div>
         <div><dt>Recorded by</dt><dd>${escapeHtml(entity.created_by_name || '—')}</dd></div>
         <div><dt>Recorded output</dt><dd>${escapeHtml(entity.quantity == null ? 'Unspecified' : `${entity.quantity} ${entity.unit || ''}`)}</dd></div>
         ${!isRope ? `<div><dt>Consumed</dt><dd>${escapeHtml(entity.quantityConsumed == null ? 'Unknown' : `${entity.quantityConsumed} ${entity.unit || ''}`)}</dd></div>` : ''}
@@ -431,7 +585,12 @@ export function EntityDetail({
         ${entity.estimated_output_quantity != null ? `<div><dt>Estimated output</dt><dd>${escapeHtml(`${entity.estimated_output_quantity} ${entity.unit || ''}`)}</dd></div>` : ''}
         ${entity.wastage_percentage != null ? `<div><dt>Wastage estimate</dt><dd>${escapeHtml(`${entity.wastage_percentage}%`)}</dd></div>` : ''}
         ${entity.supplier ? `<div><dt>Supplier</dt><dd>${escapeHtml(entity.supplier)}</dd></div>` : ''}
+        ${entity.denier ? `<div><dt>Denier</dt><dd>${escapeHtml(entity.denier)}</dd></div>` : ''}
+        ${entity.twist_direction ? `<div><dt>Twist direction</dt><dd>${escapeHtml(entity.twist_direction === 'Other' ? entity.twist_direction_other || 'Other' : `${entity.twist_direction} twist`)}</dd></div>` : ''}
+        ${entity.yarn_category ? `<div><dt>Yarn category</dt><dd>${escapeHtml(entity.yarn_category)}</dd></div>` : ''}
         ${entity.treatment ? `<div><dt>Treatment</dt><dd>${escapeHtml(entity.treatment)}</dd></div>` : ''}
+        ${entity.rope_target_length != null ? `<div><dt>Target length</dt><dd>${escapeHtml(`${entity.rope_target_length} m`)}</dd></div>` : ''}
+        ${entity.rope_grams_per_meter != null ? `<div><dt>Grams per meter</dt><dd>${escapeHtml(`${entity.rope_grams_per_meter} g/m`)}</dd></div>` : ''}
         ${entity.critical_quantity_threshold != null ? `<div><dt>Critical stock threshold</dt><dd>${escapeHtml(`${entity.critical_quantity_threshold} ${entity.critical_quantity_threshold_unit || entity.unit || ''}`)}</dd></div>` : ''}
       </dl>
       ${entity.notes ? `<section class="report-section"><h2>Batch notes</h2><p>${escapeHtml(entity.notes)}</p></section>` : ''}
@@ -511,7 +670,21 @@ export function EntityDetail({
         </div>
         <div className="detail-basic-grid">
           {entity.supplier && <div><span>Supplier</span><strong>{entity.supplier}</strong></div>}
+          {entity.denier && <div><span>Denier</span><strong>{entity.denier}</strong></div>}
+          {entity.twist_direction && (
+            <div>
+              <span>Twist direction</span>
+              <strong>{entity.twist_direction === 'Other' ? entity.twist_direction_other || 'Other' : `${entity.twist_direction} twist`}</strong>
+            </div>
+          )}
+          {entity.yarn_category && <div><span>Yarn category</span><strong>{entity.yarn_category}</strong></div>}
           {entity.treatment && <div><span>Treatment</span><strong>{entity.treatment}</strong></div>}
+          {entity.type === 'rope' && entity.rope_target_length != null && (
+            <div><span>Target length</span><strong>{entity.rope_target_length} m</strong></div>
+          )}
+          {entity.type === 'rope' && entity.rope_grams_per_meter != null && (
+            <div><span>Grams per meter</span><strong>{entity.rope_grams_per_meter} g/m</strong></div>
+          )}
           {entity.type === 'yarn' && entity.wastage_percentage != null && (
             <div><span>Wastage estimate</span><strong>{entity.wastage_percentage}%</strong></div>
           )}
@@ -522,6 +695,7 @@ export function EntityDetail({
             </div>
           )}
           <div><span>Created</span><strong>{formatDateTime(entity.created_at)}</strong></div>
+          <div><span>Event time</span><strong>{formatDateTime(entity.occurred_at || entity.created_at)}</strong></div>
           <div><span>Recorded by</span><strong>{entity.created_by_name || '—'}</strong></div>
           {(entity.quantity != null
             || (entity.type === 'yarn' && entity.estimated_output_quantity != null)) && (
@@ -560,11 +734,126 @@ export function EntityDetail({
         </div>
       </section>
 
+      {entity.type === 'flat_yarn' && (
+        <section className="detail-lifecycle">
+          <div className="detail-section-heading">
+            <div>
+              <span className="eyebrow">SAMPLING</span>
+              <h2>Cone samples <span>{samples.length}</span></h2>
+              <p className="field-hint">Add the cones selected from this lot first. Record each repeated test or parameter reading against its cone.</p>
+            </div>
+          </div>
+          {entity.sampleTrackingUnavailable && (
+            <div className="modal-error-alert" role="alert">
+              Cone sampling is unavailable because its database migration has not been applied. Existing batch information remains available; apply “Flat Yarn cone sampling workflow” to enable cone-based entries.
+            </div>
+          )}
+          <form className="form-grid-2" onSubmit={handleCreateSample}>
+            <label className="form-field">
+              <span>Cone / sample ID</span>
+              <input
+                type="text"
+                required
+                value={newSampleId}
+                onChange={(event) => setNewSampleId(event.target.value)}
+                placeholder="e.g. Cone 1"
+                disabled={entity.sampleTrackingUnavailable || savingSample}
+              />
+            </label>
+            <div className="form-field">
+              <span>Add sampled cone</span>
+              <button type="submit" className="primary-button" disabled={entity.sampleTrackingUnavailable || savingSample}>
+                <Plus size={15} /> {savingSample ? 'Adding...' : 'Add cone'}
+              </button>
+            </div>
+          </form>
+          {sampleError && <div className="modal-error-alert" role="alert">{sampleError}</div>}
+          {samples.length > 0 ? (
+            <div className="history-list">
+              {samples.map((sample) => {
+                const measurementCount = [...parameters, ...tests]
+                  .filter((item) => item.sample_id?.toLowerCase() === sample.sample_id.toLowerCase())
+                  .length
+                return (
+                  <article className="history-row" key={sample.id}>
+                    <div>
+                      <strong>{sample.sample_id}</strong>
+                      <span>{measurementCount} recorded {measurementCount === 1 ? 'reading' : 'readings'}</span>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="detail-empty-state">No cones have been sampled yet. Add the first cone to begin recording measurements.</p>
+          )}
+        </section>
+      )}
+
+      {entity.type === 'flat_yarn' && flatYarnAverages.length > 0 && (
+        <section className="detail-lifecycle test-average-section">
+          <div className="detail-section-heading">
+            <div>
+              <span className="eyebrow">QUALITY RESULTS</span>
+              <h2>Net averages</h2>
+              <p className="field-hint">Each cone’s mean is calculated first; the net average is the mean of those cone means, giving every measured cone equal weight. All numeric readings, including failed results, are included.</p>
+            </div>
+          </div>
+          <div className="table-scroll-wrap">
+            <table className="data-table">
+              <thead><tr><th>Property</th><th>Net average (mean of cone means)</th><th>Cones / readings</th><th>Per-cone mean</th></tr></thead>
+              <tbody>
+                {flatYarnAverages.map((average) => (
+                  <tr key={`${average.name}-${average.unit}`}>
+                    <td>{average.name}{average.unit ? ` (${average.unit})` : ''}</td>
+                    <td>{average.average == null ? '—' : `${Number(average.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''}`}</td>
+                    <td>{average.sampleCount} / {average.count}</td>
+                    <td>{average.samples.map((sample) => (
+                      `${sample.sampleId}: ${sample.count
+                        ? `${Number(sample.average.toFixed(3))}${average.unit ? ` ${average.unit}` : ''} (${sample.count})`
+                        : 'No readings'}`
+                    )).join(' · ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {entity.type !== 'flat_yarn' && testAverages.length > 0 && (
+        <section className="detail-lifecycle test-average-section">
+          <div className="detail-section-heading">
+            <div><span className="eyebrow">QUALITY RESULTS</span><h2>Test averages</h2></div>
+          </div>
+          <div className="table-scroll-wrap">
+            <table className="data-table">
+              <thead><tr><th>Test</th><th>Lot average</th><th>Valid results</th><th>Per sample</th></tr></thead>
+              <tbody>
+                {testAverages.map((average) => (
+                  <tr key={`${average.name}-${average.unit}`}>
+                    <td>{average.name}</td>
+                    <td>{Number(average.average.toFixed(3))} {average.unit}</td>
+                    <td>{average.count}</td>
+                    <td>{average.samples.map((sample) => (
+                      `${sample.sampleId}: ${Number(sample.average.toFixed(3))} ${average.unit} (${sample.count})`
+                    )).join(' · ') || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section className="detail-lifecycle">
         <div className="detail-section-heading lifecycle-heading">
           <div>
             <span className="eyebrow">BATCH RECORD</span>
             <h2>Lifecycle <span>{entries.length}</span></h2>
+            {entity.type === 'flat_yarn' && (
+              <p className="field-hint">Add cones in Cone samples first, then select a cone when recording each test or parameter reading.</p>
+            )}
           </div>
           <div className="lifecycle-actions">
             <button className="secondary-button" onClick={onOpenAddProcessModal}>Process</button>
@@ -584,6 +873,10 @@ export function EntityDetail({
                     <span className={`timeline-type ${entry.className}`}>{entry.type}</span>
                     <time>{formatDateTime(entry.timestamp)}</time>
                   </div>
+                  {entry.recordedAt
+                    && entry.timestamp
+                    && new Date(entry.recordedAt).getTime() !== new Date(entry.timestamp).getTime()
+                    && <small className="timeline-entry-recorded">Recorded {formatDateTime(entry.recordedAt)}</small>}
                   <h3>{entry.title}</h3>
                   {entry.detail && (
                     <p className="timeline-entry-detail">{entry.detail}</p>

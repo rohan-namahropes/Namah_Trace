@@ -20,6 +20,7 @@ export function Sidebar({
   isAdmin,
   storageMode,
   onOpenSqlModal,
+  onOpenProcessSpecifications,
 }) {
   const displayName = profile?.display_name || 'Namah User'
   const displayRole = profile?.role === 'admin' ? 'admin' : 'operator'
@@ -105,9 +106,14 @@ export function Sidebar({
           </div>
         </div>
         {isAdmin && (
-          <button className="sidebar-admin-tool" onClick={onOpenSqlModal}>
-            <Database size={14} /> Database migrations
-          </button>
+          <>
+            <button className="sidebar-admin-tool" onClick={onOpenProcessSpecifications}>
+              <Database size={14} /> Process specifications
+            </button>
+            <button className="sidebar-admin-tool" onClick={onOpenSqlModal}>
+              <Database size={14} /> Database migrations
+            </button>
+          </>
         )}
         <button className="logout-action-btn" onClick={onLogout}>
           <LogOut size={15} /> Sign out

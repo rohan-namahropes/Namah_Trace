@@ -14,10 +14,11 @@ const PARAM_PRESETS = [
   { name: 'Linear Mass', label: 'Linear Mass / Weight', unit: 'g/m' },
 ]
 
-export function AddParameterModal({ onClose, onSave }) {
+export function AddParameterModal({ entityType, samples = [], onClose, onSave }) {
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [unit, setUnit] = useState('')
+  const [sampleId, setSampleId] = useState('')
   const [remarks, setRemarks] = useState('')
   const [evidenceFile, setEvidenceFile] = useState(null)
   const [error, setError] = useState('')
@@ -50,6 +51,7 @@ export function AddParameterModal({ onClose, onSave }) {
         name: name.trim(),
         value: value.trim(),
         unit: unit.trim(),
+        sampleId: entityType === 'flat_yarn' ? sampleId.trim() : '',
         remarks: remarks.trim(),
         evidenceFile,
       })
@@ -57,7 +59,7 @@ export function AddParameterModal({ onClose, onSave }) {
       onClose()
     } catch (err) {
       setError(err.message || 'Failed to save parameter')
-      if (err.recordSaved) {
+      if (err.recordSaved || err.operationCommitted) {
         onClose()
         return
       }
@@ -141,6 +143,19 @@ export function AddParameterModal({ onClose, onSave }) {
                 onChange={(e) => setUnit(e.target.value)}
               />
             </label>
+
+            {entityType === 'flat_yarn' && (
+              <label className="form-field">
+                <span>Cone / Sample *</span>
+                <select required value={sampleId} onChange={(e) => setSampleId(e.target.value)}>
+                  <option value="">Select a cone / sample</option>
+                  {samples.map((sample) => (
+                    <option key={sample.id} value={sample.sample_id}>{sample.sample_id}</option>
+                  ))}
+                </select>
+                {samples.length === 0 && <small className="field-warning">Add a cone in the Cone samples section before recording measurements.</small>}
+              </label>
+            )}
 
             <label className="form-field">
               <span>Remarks / Reference</span>

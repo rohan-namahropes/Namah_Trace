@@ -1,10 +1,27 @@
 import React, { useState } from 'react'
 import { X, AlertCircle, Check } from 'lucide-react'
 
+function toLocalDateTime(value) {
+  if (!value) return ''
+  const date = new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000)
+  return date.toISOString().slice(0, 16)
+}
+
 export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave }) {
   const [batchId, setBatchId] = useState(entity.batch_id || '')
   const [supplier, setSupplier] = useState(entity.supplier || '')
+  const [denier, setDenier] = useState(entity.denier || '')
   const [treatment, setTreatment] = useState(entity.treatment || '')
+  const [twistDirection, setTwistDirection] = useState(entity.twist_direction || '')
+  const [twistDirectionOther, setTwistDirectionOther] = useState(entity.twist_direction_other || '')
+  const [yarnCategory, setYarnCategory] = useState(entity.yarn_category || '')
+  const [occurredAt, setOccurredAt] = useState(toLocalDateTime(entity.occurred_at || entity.created_at))
+  const [ropeTargetLength, setRopeTargetLength] = useState(
+    entity.rope_target_length != null ? String(entity.rope_target_length) : ''
+  )
+  const [ropeGramsPerMeter, setRopeGramsPerMeter] = useState(
+    entity.rope_grams_per_meter != null ? String(entity.rope_grams_per_meter) : ''
+  )
   const [quantity, setQuantity] = useState(entity.quantity != null ? String(entity.quantity) : '')
   const [unit, setUnit] = useState(entity.unit || (entity.type === 'rope' ? 'meters' : 'kg'))
   const [estimatedOutput, setEstimatedOutput] = useState(
@@ -45,6 +62,14 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
       setError('Wastage percentage must be between 0 and 100.')
       return
     }
+    if (entity.type === 'rope' && (
+      Boolean(ropeTargetLength) !== Boolean(ropeGramsPerMeter)
+      || (ropeTargetLength && (!Number.isFinite(Number(ropeTargetLength)) || Number(ropeTargetLength) <= 0))
+      || (ropeGramsPerMeter && (!Number.isFinite(Number(ropeGramsPerMeter)) || Number(ropeGramsPerMeter) <= 0))
+    )) {
+      setError('Target length and grams per meter must both be positive values or both be empty.')
+      return
+    }
     if (
       entity.type === 'yarn'
       && estimatedOutput
@@ -60,8 +85,9 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
         notes: notes.trim(),
         quantity: quantity ? Number(quantity) : null,
         unit,
+        occurred_at: occurredAt ? new Date(occurredAt).toISOString() : null,
       }
-      if (entity.type === 'flat_yarn' && isAdmin && batchId.trim() !== entity.batch_id) {
+      if (isAdmin && batchId.trim() !== entity.batch_id) {
         updates.batch_id = batchId.trim()
       }
       if (entity.type === 'yarn') {
@@ -70,13 +96,24 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
       }
       if (entity.type === 'flat_yarn' && isAdmin) {
         updates.supplier = supplier.trim()
+        updates.denier = denier.trim()
         updates.critical_quantity_threshold = criticalThreshold ? Number(criticalThreshold) : null
         updates.critical_quantity_threshold_unit = criticalThresholdUnit || unit || 'kg'
       } else if (entity.type === 'flat_yarn') {
         updates.supplier = supplier.trim()
       }
-      if (entity.type === 'yarn') {
+      if (entity.type === 'yarn' && isAdmin) {
         updates.treatment = treatment.trim()
+        updates.denier = denier.trim()
+        updates.twist_direction = twistDirection || null
+        updates.twist_direction_other = twistDirection === 'Other' ? twistDirectionOther.trim() : null
+        updates.yarn_category = yarnCategory.trim()
+      } else if (entity.type === 'yarn') {
+        updates.treatment = treatment.trim()
+      }
+      if (entity.type === 'rope' && isAdmin) {
+        updates.rope_target_length = ropeTargetLength ? Number(ropeTargetLength) : null
+        updates.rope_grams_per_meter = ropeGramsPerMeter ? Number(ropeGramsPerMeter) : null
       }
 
       const result = await onSave(updates)
@@ -112,7 +149,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
 
         <form onSubmit={handleSubmit} className="modal-form">
           <div className="form-grid-2">
-            {entity.type === 'flat_yarn' && isAdmin ? (
+            {isAdmin ? (
               <label className="form-field">
                 <span>Batch ID</span>
                 <input
@@ -122,7 +159,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
                   placeholder="Set or rename the batch identifier"
                 />
                 <small className="field-hint">
-                  {entity.batch_id.toUpperCase().startsWith('INTAKE-')
+                  {entity.type === 'flat_yarn' && entity.batch_id.toUpperCase().startsWith('INTAKE-')
                     ? 'Set a permanent identifier before using this intake to create Yarn.'
                     : 'Admins can rename this identifier.'}
                 </small>
@@ -135,7 +172,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
               </div>
             )}
 
-            {entity.type === 'flat_yarn' && isAdmin && (
+            {entity.type === 'flat_yarn' && (
               <label className="form-field">
                 <span>Supplier</span>
                 <input
@@ -143,6 +180,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
                   value={supplier}
                   onChange={(e) => setSupplier(e.target.value)}
                   placeholder="e.g. ABC Corp"
+                  disabled={!isAdmin}
                 />
               </label>
             )}
@@ -155,7 +193,69 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
                   value={treatment}
                   onChange={(e) => setTreatment(e.target.value)}
                   placeholder="e.g. Twisting @ 1600 TPM"
+                  disabled={!isAdmin}
                 />
+              </label>
+            )}
+            {entity.type === 'flat_yarn' && (
+              <label className="form-field">
+                <span>Denier</span>
+                <input value={denier} onChange={(e) => setDenier(e.target.value)} disabled={!isAdmin} />
+              </label>
+            )}
+            {entity.type === 'yarn' && isAdmin && (
+              <>
+                <label className="form-field">
+                  <span>Denier</span>
+                  <input value={denier} onChange={(e) => setDenier(e.target.value)} />
+                </label>
+                <label className="form-field">
+                  <span>Twist direction</span>
+                  <select value={twistDirection} onChange={(e) => setTwistDirection(e.target.value)}>
+                    <option value="">Not specified</option>
+                    <option value="S">S twist</option>
+                    <option value="Z">Z twist</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+                {twistDirection === 'Other' && (
+                  <label className="form-field">
+                    <span>Other twist direction</span>
+                    <input value={twistDirectionOther} onChange={(e) => setTwistDirectionOther(e.target.value)} />
+                  </label>
+                )}
+                <label className="form-field">
+                  <span>Yarn category (Optional)</span>
+                  <select value={yarnCategory} onChange={(e) => setYarnCategory(e.target.value)}>
+                    <option value="">Not specified</option>
+                    <option value="Sheath Yarn">Sheath Yarn</option>
+                    <option value="Core Yarn">Core Yarn</option>
+                    <option value="Other">Other</option>
+                    {yarnCategory && !['Sheath Yarn', 'Core Yarn', 'Other'].includes(yarnCategory) && (
+                      <option value={yarnCategory}>Existing value: {yarnCategory}</option>
+                    )}
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+
+          <div className="form-grid-2">
+            <label className="form-field">
+              <span>When batch happened</span>
+              <input type="datetime-local" required value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
+              <small className="field-hint">System record time is retained separately in the audit history.</small>
+            </label>
+            {entity.type === 'rope' && isAdmin && (
+              <label className="form-field">
+                <span>Target length for material estimate (m)</span>
+                <input type="number" min="0" step="any" value={ropeTargetLength} onChange={(e) => setRopeTargetLength(e.target.value)} />
+              </label>
+            )}
+            {entity.type === 'rope' && isAdmin && (
+              <label className="form-field">
+                <span>Grams per meter</span>
+                <input type="number" min="0" step="any" value={ropeGramsPerMeter} onChange={(e) => setRopeGramsPerMeter(e.target.value)} />
               </label>
             )}
           </div>

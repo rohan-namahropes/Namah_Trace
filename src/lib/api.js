@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 
 const EVIDENCE_BUCKET = 'evidence'
+const PROCESS_SPECIFICATION_BUCKET = 'process-specifications'
 
 function requireSupabase() {
   if (!supabase) {
@@ -13,6 +14,11 @@ async function queryData(query) {
   const { data, error } = await query
   if (error) throw error
   return data
+}
+
+function isMissingEntitySamplesTable(error) {
+  return ['42P01', 'PGRST205'].includes(error?.code)
+    && /entity_samples/i.test(error?.message || '')
 }
 
 async function fetchProfiles(userIds) {
@@ -80,10 +86,17 @@ function withAuditDisplayFields(log) {
 }
 
 function committedAuditError(error) {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = error instanceof Error ? error.message : error?.message || String(error)
   const committedError = new Error(
     `The operational change was saved, but its audit entry could not be saved: ${message}`
   )
+  committedError.operationCommitted = true
+  return committedError
+}
+
+function committedOperationError(error, operation) {
+  const message = error instanceof Error ? error.message : error?.message || String(error)
+  const committedError = new Error(`${operation} was created, but some details could not be saved: ${message}`)
   committedError.operationCommitted = true
   return committedError
 }
@@ -129,6 +142,10 @@ function mapGenealogy(entity, entities, links, balanceLinks = links) {
         parentCreatedAt: parent.created_at,
         parentSupplier: parent.supplier,
         parentTreatment: parent.treatment,
+        parentDenier: parent.denier,
+        parentTwistDirection: parent.twist_direction,
+        parentTwistDirectionOther: parent.twist_direction_other,
+        parentYarnCategory: parent.yarn_category,
         parentQuantity: parent.quantity,
         parentUnit: parent.unit,
         parentNotes: parent.notes,
@@ -141,6 +158,10 @@ function mapGenealogy(entity, entities, links, balanceLinks = links) {
         childCreatedAt: child.created_at,
         childSupplier: child.supplier,
         childTreatment: child.treatment,
+        childDenier: child.denier,
+        childTwistDirection: child.twist_direction,
+        childTwistDirectionOther: child.twist_direction_other,
+        childYarnCategory: child.yarn_category,
         childQuantity: child.quantity,
         childUnit: child.unit,
         childNotes: child.notes,
@@ -167,8 +188,17 @@ function mapGenealogy(entity, entities, links, balanceLinks = links) {
         type: parent?.type || 'unknown',
         supplier: parent?.supplier || null,
         treatment: parent?.treatment || null,
+        denier: parent?.denier || null,
+        twist_direction: parent?.twist_direction || null,
+        twist_direction_other: parent?.twist_direction_other || null,
+        twistDirectionOther: parent?.twist_direction_other || null,
+        yarn_category: parent?.yarn_category || null,
         quantityUsed: link.quantity_used,
         unit: link.unit || parent?.unit,
+        componentRole: link.component_role || null,
+        compositionPercentage: link.composition_percentage == null
+          ? null
+          : Number(link.composition_percentage),
         quantityRemaining: balance?.quantityRemaining ?? null,
         remainingKnown: balance?.consumptionKnown ?? false,
         quantityUnit: parent?.unit || null,
@@ -278,6 +308,7 @@ async function entityBundle(entityId, knownEntity = null) {
     evidenceRows,
     auditLogs,
     genealogyLinks,
+    sampleResult,
   ] = await Promise.all([
     knownEntity
       ? Promise.resolve(knownEntity)
@@ -288,8 +319,17 @@ async function entityBundle(entityId, knownEntity = null) {
     queryData(db.from('entity_evidence').select('*').eq('entity_id', entityId).order('created_at', { ascending: false })),
     queryData(db.from('entity_audit_logs').select('*').eq('entity_id', entityId).order('created_at', { ascending: false })),
     queryData(db.from('entity_genealogy').select('*').or(`parent_entity_id.eq.${entityId},child_entity_id.eq.${entityId}`)),
+    knownEntity?.type === 'flat_yarn'
+      ? queryData(db.from('entity_samples').select('*').eq('entity_id', entityId).order('created_at'))
+        .then((rows) => ({ rows, unavailable: false }))
+        .catch((error) => {
+          if (!isMissingEntitySamplesTable(error)) throw error
+          return { rows: [], unavailable: true }
+        })
+      : Promise.resolve({ rows: [], unavailable: false }),
   ])
   if (!entity) return null
+  const { rows: samples, unavailable: sampleTrackingUnavailable } = sampleResult
 
   const adjacentIds = [...new Set(genealogyLinks.flatMap((link) => [
     link.parent_entity_id,
@@ -393,6 +433,8 @@ async function entityBundle(entityId, knownEntity = null) {
     stockDepleted,
     thresholdUnitProblem,
     created_by_name: profiles.get(entity.created_by) || null,
+    samples,
+    sampleTrackingUnavailable,
     parameters,
     tests: tests.map((item) => ({
       ...item,
@@ -411,6 +453,10 @@ async function entityBundle(entityId, knownEntity = null) {
         type: parent?.type || 'unknown',
         supplier: parent?.supplier || null,
         treatment: parent?.treatment || null,
+        denier: parent?.denier || null,
+        twist_direction: parent?.twist_direction || null,
+        twist_direction_other: parent?.twist_direction_other || null,
+        yarn_category: parent?.yarn_category || null,
         processes: parentProcesses.filter((item) => item.entity_id === parentId),
         parameters: parentParameters.filter((item) => item.entity_id === parentId),
         tests: parentTests
@@ -533,11 +579,69 @@ export async function getEntity(idOrBatchId) {
   })
 }
 
+export async function createEntitySample(entityId, sampleId) {
+  return withResult(async () => {
+    const normalizedSampleId = String(sampleId || '').trim()
+    if (!normalizedSampleId) throw new Error('Cone / sample ID is required.')
+    const db = requireSupabase()
+    const entity = await queryData(
+      db.from('entities').select('id, type').eq('id', entityId).maybeSingle()
+    )
+    if (!entity || entity.type !== 'flat_yarn') {
+      throw new Error('Samples can only be created for Flat Yarn batches.')
+    }
+    const existingSamples = await queryData(
+      db.from('entity_samples').select('sample_id').eq('entity_id', entityId)
+    )
+    if (existingSamples.some((sample) => sample.sample_id.toLowerCase() === normalizedSampleId.toLowerCase())) {
+      throw new Error(`Cone / sample "${normalizedSampleId}" already exists for this batch.`)
+    }
+    let sample
+    try {
+      sample = await queryData(db.from('entity_samples').insert({
+        entity_id: entityId,
+        sample_id: normalizedSampleId,
+      }).select().single())
+    } catch (error) {
+      if (error?.code === '23505') {
+        throw new Error(`Cone / sample "${normalizedSampleId}" already exists for this batch.`)
+      }
+      throw error
+    }
+    try {
+      await writeAuditLog(entityId, `Added Flat Yarn cone / sample ${normalizedSampleId}`, {
+        field_name: 'sample',
+        new_value: normalizedSampleId,
+      })
+    } catch (error) {
+      throw committedAuditError(error)
+    }
+    return sample
+  })
+}
+
+async function validateFlatYarnSample(entityId, sampleId) {
+  const db = requireSupabase()
+  const entity = await queryData(db.from('entities').select('type').eq('id', entityId).maybeSingle())
+  if (!entity) throw new Error('Batch not found.')
+  if (entity.type !== 'flat_yarn') return
+  const normalizedSampleId = String(sampleId || '').trim()
+  if (!normalizedSampleId) throw new Error('Select a cone / sample before recording this Flat Yarn measurement.')
+  const samples = await queryData(
+    db.from('entity_samples').select('sample_id').eq('entity_id', entityId)
+  )
+  if (!samples.some((sample) => sample.sample_id.toLowerCase() === normalizedSampleId.toLowerCase())) {
+    throw new Error('Select a cone / sample that has been added to this Flat Yarn batch.')
+  }
+}
+
 export async function createFlatYarn({
   batchId: requestedBatchIdInput,
   supplier,
+  denier,
   quantity,
   unit = 'kg',
+  occurredAt,
   criticalQuantityThreshold = null,
   criticalQuantityThresholdUnit = unit,
   notes,
@@ -566,8 +670,10 @@ export async function createFlatYarn({
       type: 'flat_yarn',
       batch_id: batchId,
       supplier: supplierName || null,
+      denier: String(denier || '').trim() || null,
       quantity: quantity == null || quantity === '' ? null : Number(quantity),
       unit: unit || 'kg',
+      occurred_at: occurredAt ? new Date(occurredAt).toISOString() : undefined,
       critical_quantity_threshold: criticalQuantityThreshold,
       critical_quantity_threshold_unit: criticalQuantityThreshold == null ? null : criticalQuantityThresholdUnit,
       status: 'In Progress',
@@ -592,6 +698,11 @@ export async function createYarnBatch({
   batchId,
   parentEntityId,
   treatment,
+  denier,
+  twistDirection,
+  twistDirectionOther,
+  yarnCategory,
+  occurredAt,
   inputQuantity,
   inputUnit,
   quantity,
@@ -601,6 +712,12 @@ export async function createYarnBatch({
 }) {
   return withResult(async () => {
     const db = requireSupabase()
+    if (!['S', 'Z', 'Other'].includes(twistDirection)) {
+      throw new Error('Twist direction must be S, Z, or Other.')
+    }
+    if (twistDirection === 'Other' && !String(twistDirectionOther || '').trim()) {
+      throw new Error('Describe the other twist direction.')
+    }
     if (!inputQuantity || Number(inputQuantity) <= 0) {
       throw new Error('Quantity consumed from the Flat Yarn parent is required.')
     }
@@ -626,10 +743,33 @@ export async function createYarnBatch({
       }],
       p_wastage_percentage: percentage,
     }))
+    const metadata = {
+      denier: String(denier || '').trim() || null,
+      twist_direction: twistDirection || null,
+      twist_direction_other: twistDirection === 'Other'
+        ? String(twistDirectionOther || '').trim() || null
+        : null,
+      yarn_category: String(yarnCategory || '').trim() || null,
+    }
+    if (occurredAt) metadata.occurred_at = new Date(occurredAt).toISOString()
+    try {
+      await queryData(db.from('entities').update(metadata).eq('id', entityId).select('id').single())
+    } catch (error) {
+      throw committedOperationError(error, 'Yarn batch')
+    }
+    try {
+      await writeAuditLog(entityId, 'Recorded Yarn batch specifications', {
+        field_name: 'yarn_specification',
+        new_value: JSON.stringify(metadata),
+      })
+    } catch (error) {
+      throw committedAuditError(error)
+    }
     return {
       id: entityId,
       type: 'yarn',
       batch_id: String(batchId).trim(),
+      ...metadata,
       estimated_output_quantity: inputUnit === unit
         ? Number(inputQuantity) * (100 - percentage) / 100
         : null,
@@ -644,6 +784,136 @@ export async function listYarnConfigurations() {
     return queryData(
       db.from('yarn_configurations').select('*').order('name')
     )
+  })
+}
+
+export async function listProcessTypeSpecifications() {
+  return withResult(async () => queryData(
+    requireSupabase()
+      .from('process_type_specifications')
+      .select('id, process_family, type_name, specification_file_name, specification_mime_type, updated_at')
+      .order('process_family')
+      .order('type_name')
+  ))
+}
+
+export async function saveProcessTypeSpecification({ id, processFamily, typeName, file }) {
+  return withResult(async () => {
+    const family = String(processFamily || '').trim()
+    const type = String(typeName || '').trim()
+    if (!family || !type) throw new Error('Process family and type name are required.')
+    const db = requireSupabase()
+    const current = await queryData(
+      db.from('process_type_specifications')
+        .select('id, specification_storage_path')
+        .match(id ? { id } : { process_family: family, type_name: type })
+        .maybeSingle()
+    )
+    if (!file) {
+      if (current) {
+        return queryData(db.from('process_type_specifications').update({
+          process_family: family,
+          type_name: type,
+          updated_at: new Date().toISOString(),
+        }).eq('id', current.id).select().single())
+      }
+      return queryData(db.from('process_type_specifications').insert({
+        process_family: family,
+        type_name: type,
+      }).select().single())
+    }
+    if (file.size > 25 * 1024 * 1024) throw new Error('Specification files must be 25 MB or smaller.')
+    const extension = String(file.name || '').split('.').pop().toLowerCase()
+    const mimeByExtension = {
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+    }
+    const mimeType = mimeByExtension[extension]
+    if (!mimeType || (file.type && file.type !== mimeType && file.type !== 'application/octet-stream')) {
+      throw new Error('Specification files must be PDF, DOCX, JPG, or PNG.')
+    }
+    if (id && !current) throw new Error('Process specification was not found.')
+
+    const specificationId = current?.id || crypto.randomUUID()
+    const path = `${specificationId}/${crypto.randomUUID()}.${extension}`
+    const storage = db.storage.from(PROCESS_SPECIFICATION_BUCKET)
+    const { error: uploadError } = await storage.upload(path, file, {
+      contentType: mimeType,
+      upsert: false,
+    })
+    if (uploadError) throw uploadError
+
+    let saved
+    try {
+      saved = await queryData(db.from('process_type_specifications').upsert({
+        ...(current ? { id: current.id } : {}),
+        process_family: family,
+        type_name: type,
+        specification_file_name: file.name,
+        specification_storage_path: path,
+        specification_mime_type: mimeType,
+      }, { onConflict: 'process_family,type_name' }).select().single())
+    } catch (error) {
+      const { error: cleanupError } = await storage.remove([path])
+      if (cleanupError) {
+        throw new Error(`${error.message}; uploaded specification cleanup also failed: ${cleanupError.message}`)
+      }
+      throw error
+    }
+    if (current?.specification_storage_path) {
+      const { error: cleanupError } = await storage.remove([current.specification_storage_path])
+      if (cleanupError) {
+        const committedError = new Error(`Specification was updated, but the previous file could not be removed: ${cleanupError.message}`)
+        committedError.operationCommitted = true
+        throw committedError
+      }
+    }
+    return saved
+  })
+}
+
+export async function deleteProcessTypeSpecification(specificationId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const current = await queryData(
+      db.from('process_type_specifications')
+        .select('id, process_family, type_name, specification_storage_path')
+        .eq('id', specificationId)
+        .maybeSingle()
+    )
+    if (!current) throw new Error('Process specification was not found.')
+    await queryData(
+      db.from('process_type_specifications').delete().eq('id', specificationId).select('id').single()
+    )
+    const { error } = await db.storage.from(PROCESS_SPECIFICATION_BUCKET).remove([current.specification_storage_path])
+    if (error) {
+      const committedError = new Error(`Process specification was deleted, but its uploaded file could not be removed: ${error.message}`)
+      committedError.operationCommitted = true
+      throw committedError
+    }
+    return { id: current.id }
+  })
+}
+
+export async function getProcessTypeSpecificationUrl(specificationId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const specification = await queryData(
+      db.from('process_type_specifications')
+        .select('specification_storage_path')
+        .eq('id', specificationId)
+        .maybeSingle()
+    )
+    if (!specification?.specification_storage_path) throw new Error('Process specification file was not found.')
+    const { data, error } = await db.storage
+      .from(PROCESS_SPECIFICATION_BUCKET)
+      .createSignedUrl(specification.specification_storage_path, 3600)
+    if (error) throw error
+    if (!data?.signedUrl) throw new Error('Unable to create a link for this process specification.')
+    return data.signedUrl
   })
 }
 
@@ -670,10 +940,63 @@ export async function saveYarnConfiguration({ name, suffix, twistingDenier, plyi
   })
 }
 
-export async function createRopeBatch({ batchId, allocations, quantity, unit = 'meters', notes }) {
+export async function createRopeBatch({
+  batchId,
+  allocations,
+  quantity,
+  unit = 'meters',
+  notes,
+  targetLength,
+  gramsPerMeter,
+  occurredAt,
+}) {
   return withResult(async () => {
     const db = requireSupabase()
     if (!allocations?.length) throw new Error('At least one parent Yarn Batch must be selected.')
+    if (Math.abs(allocations.reduce((total, allocation) => (
+      total + Number(allocation.compositionPercentage || 0)
+    ), 0) - 100) > 0.000001) {
+      throw new Error('Yarn component percentages must total 100%.')
+    }
+    if (allocations.some((allocation) => (
+      !String(allocation.componentRole || '').trim()
+      || !Number.isFinite(Number(allocation.compositionPercentage))
+      || Number(allocation.compositionPercentage) <= 0
+    ))) {
+      throw new Error('Each Yarn allocation requires a component role and positive composition percentage.')
+    }
+    if ((targetLength == null) !== (gramsPerMeter == null)) {
+      throw new Error('Target length and grams per meter must both be provided or both be empty.')
+    }
+    let totalWeightKg = null
+    if (targetLength != null) {
+      totalWeightKg = Number(targetLength) * Number(gramsPerMeter) / 1000
+      if (
+        !Number.isFinite(Number(targetLength))
+        || Number(targetLength) <= 0
+        || !Number.isFinite(Number(gramsPerMeter))
+        || Number(gramsPerMeter) <= 0
+        || !Number.isFinite(totalWeightKg)
+        || totalWeightKg <= 0
+      ) {
+        throw new Error('Target length and grams per meter must be finite positive values.')
+      }
+      for (const allocation of allocations) {
+        const unitName = String(allocation.unit || '').trim().toLowerCase()
+        const conversion = unitName === 'kg' ? 1 : unitName === 'lbs' ? 2.2046226218 : null
+        if (conversion == null) {
+          throw new Error('Calculated Rope composition requires parent Yarn batches to use kg or lbs.')
+        }
+        const expectedQuantity = totalWeightKg
+          * Number(allocation.compositionPercentage)
+          / 100
+          * conversion
+        const difference = Math.abs(Number(allocation.quantity) - expectedQuantity)
+        if (!Number.isFinite(Number(allocation.quantity)) || difference > Math.max(0.000001, expectedQuantity * 0.000001)) {
+          throw new Error('Rope material quantities must match the configured length, grams per meter, and composition shares.')
+        }
+      }
+    }
     const entityId = await queryData(db.rpc('create_batch_with_consumption', {
       p_entity: {
         type: 'rope',
@@ -690,6 +1013,39 @@ export async function createRopeBatch({ batchId, allocations, quantity, unit = '
         remarks: allocation.remarks || null,
       })),
     }))
+    try {
+      await queryData(db.rpc('save_rope_composition_metadata', {
+        p_entity_id: entityId,
+        p_target_length: targetLength == null ? null : Number(targetLength),
+        p_grams_per_meter: gramsPerMeter == null ? null : Number(gramsPerMeter),
+        p_occurred_at: occurredAt ? new Date(occurredAt).toISOString() : null,
+        p_allocations: allocations.map((allocation) => ({
+          parent_entity_id: allocation.parentEntityId,
+          component_role: String(allocation.componentRole || '').trim(),
+          composition_percentage: Number(allocation.compositionPercentage),
+        })),
+      }))
+    } catch (error) {
+      throw committedOperationError(error, 'Rope batch')
+    }
+    if (targetLength != null || gramsPerMeter != null || allocations.some((allocation) => allocation.componentRole)) {
+      try {
+        await writeAuditLog(entityId, 'Recorded Rope composition estimate', {
+          field_name: 'rope_composition',
+          new_value: JSON.stringify({
+            target_length: targetLength ?? null,
+            grams_per_meter: gramsPerMeter ?? null,
+            allocations: allocations.map((allocation) => ({
+              parent_entity_id: allocation.parentEntityId,
+              component_role: allocation.componentRole || null,
+              composition_percentage: allocation.compositionPercentage ?? null,
+            })),
+          }),
+        })
+      } catch (error) {
+        throw committedAuditError(error)
+      }
+    }
     return { id: entityId, type: 'rope', batch_id: String(batchId).trim() }
   })
 }
@@ -702,6 +1058,13 @@ export async function updateEntityBasicInfo(entityId, updates) {
     const allowed = [
       'batch_id',
       'supplier',
+      'denier',
+      'twist_direction',
+      'twist_direction_other',
+      'yarn_category',
+      'occurred_at',
+      'rope_grams_per_meter',
+      'rope_target_length',
       'treatment',
       'quantity',
       'unit',
@@ -714,12 +1077,19 @@ export async function updateEntityBasicInfo(entityId, updates) {
     const changes = Object.fromEntries(
       allowed.filter((field) => field in updates).map((field) => [field, updates[field]])
     )
+    if ('occurred_at' in changes) {
+      const eventDate = changes.occurred_at ? new Date(changes.occurred_at) : null
+      if (!eventDate || !Number.isFinite(eventDate.getTime())) {
+        throw new Error('A valid event time is required.')
+      }
+      changes.occurred_at = eventDate.toISOString()
+    }
     if ('batch_id' in changes) {
       const batchId = String(changes.batch_id || '').trim()
-      if (current.type !== 'flat_yarn' || !batchId) {
-        throw new Error('A non-empty Flat Yarn batch ID is required.')
+      if (!batchId) {
+        throw new Error('A non-empty batch ID is required.')
       }
-      if (batchId.toUpperCase().startsWith('INTAKE-')) {
+      if (current.type === 'flat_yarn' && batchId.toUpperCase().startsWith('INTAKE-')) {
         throw new Error('Batch IDs starting with INTAKE- are reserved for temporary intake records.')
       }
       changes.batch_id = batchId
@@ -759,6 +1129,13 @@ export async function updateEntityBasicInfo(entityId, updates) {
       wastage_percentage: 'Wastage percentage',
       critical_quantity_threshold: 'Critical stock threshold',
       critical_quantity_threshold_unit: 'Critical threshold unit',
+      denier: 'Denier',
+      twist_direction: 'Twist direction',
+      twist_direction_other: 'Other twist direction',
+      yarn_category: 'Yarn category',
+      occurred_at: 'Event time',
+      rope_grams_per_meter: 'Grams per meter',
+      rope_target_length: 'Target length',
     }
     for (const field of allowed) {
       if (!(field in changes) || changes[field] === current[field]) continue
@@ -814,14 +1191,17 @@ export async function updateEntityStatus(entityId, newStatus) {
   })
 }
 
-export async function addParameter(entityId, { name, value, unit, remarks }) {
+export async function addParameter(entityId, { name, value, unit, sampleId, remarks }) {
   return withResult(async () => {
     const db = requireSupabase()
+    const sampleCode = String(sampleId || '').trim()
+    await validateFlatYarnSample(entityId, sampleCode)
     const parameter = await queryData(db.from('entity_parameters').insert({
       entity_id: entityId,
       name: String(name).trim(),
       value: String(value).trim(),
       unit: unit?.trim() || '',
+      sample_id: sampleCode || null,
       remarks: remarks?.trim() || '',
     }).select().single())
     try {
@@ -830,7 +1210,7 @@ export async function addParameter(entityId, { name, value, unit, remarks }) {
         `Added parameter ${parameter.name}`,
         {
           field_name: 'parameter',
-          new_value: `${parameter.value} ${parameter.unit || ''}`.trim(),
+          new_value: `${parameter.value} ${parameter.unit || ''}${parameter.sample_id ? ` · Sample: ${parameter.sample_id}` : ''}`.trim(),
         }
       )
     } catch (error) {
@@ -878,12 +1258,17 @@ export async function addTest(entityId, {
   remarks,
   result = 'Pass',
   processId = null,
+  sampleId,
+  testedAt,
 }) {
   return withResult(async () => {
     const db = requireSupabase()
+    const sampleCode = String(sampleId || '').trim()
+    await validateFlatYarnSample(entityId, sampleCode)
     const test = await queryData(db.from('entity_tests').insert({
       entity_id: entityId,
       process_id: processId || null,
+      sample_id: sampleCode || null,
       test_name: String(testName).trim(),
       value: String(value).trim(),
       unit: unit?.trim() || '',
@@ -891,6 +1276,7 @@ export async function addTest(entityId, {
       applicable_standard: applicableStandard?.trim() || null,
       result: result || 'Pass',
       remarks: remarks?.trim() || '',
+      ...(testedAt ? { tested_at: new Date(testedAt).toISOString() } : {}),
     }).select().single())
     try {
       await writeAuditLog(
@@ -937,14 +1323,30 @@ export async function deleteTest(entityId, testId) {
   })
 }
 
-export async function addProcess(entityId, { processName, specification, remarks }) {
+export async function addProcess(entityId, {
+  processName,
+  processFamily,
+  processType,
+  processSpecificationId,
+  specification,
+  remarks,
+  performedAt,
+}) {
   return withResult(async () => {
     const db = requireSupabase()
+    const family = String(processFamily || '').trim()
+    const type = String(processType || '').trim()
+    const label = family && type ? `${family} · ${type}` : String(processName || '').trim()
+    if (!label) throw new Error('Select a configured process type.')
     const process = await queryData(db.from('entity_processes').insert({
       entity_id: entityId,
-      process_name: String(processName).trim(),
+      process_name: label,
+      process_family: family || null,
+      process_type: type || null,
+      process_type_specification_id: processSpecificationId || null,
       specification: specification?.trim() || '',
       remarks: remarks?.trim() || '',
+      ...(performedAt ? { performed_at: new Date(performedAt).toISOString() } : {}),
     }).select().single())
     try {
       await writeAuditLog(
@@ -952,7 +1354,7 @@ export async function addProcess(entityId, { processName, specification, remarks
         `Added process: ${process.process_name}`,
         {
           field_name: 'process',
-          new_value: process.specification || process.process_name,
+          new_value: [process.process_name, process.specification].filter(Boolean).join(' · '),
         }
       )
     } catch (error) {

@@ -7,6 +7,8 @@ import YARN_OUTPUT_SQL from '../../supabase/yarn_configuration_and_output_migrat
 import YARN_ESTIMATED_ALLOCATION_SQL from '../../supabase/yarn_estimated_output_allocation_migration.sql?raw'
 import EVIDENCE_VIDEO_SQL from '../../supabase/evidence_video_support_migration.sql?raw'
 import STOCK_ALERTS_AND_INTAKE_SQL from '../../supabase/stock_alerts_and_flat_yarn_intake_migration.sql?raw'
+import FACTORFLOW_DEVELOPMENT_SQL from '../../supabase/factorflow_development_migration.sql?raw'
+import FLAT_YARN_SAMPLE_WORKFLOW_SQL from '../../supabase/flat_yarn_sample_workflow_migration.sql?raw'
 
 const MIGRATIONS = [
   {
@@ -58,10 +60,24 @@ const MIGRATIONS = [
     sql: STOCK_ALERTS_AND_INTAKE_SQL,
     description: 'Stores dismissed stock alerts per user, permits admin-only Flat Yarn ID renaming, and prevents unnamed intake material from being allocated to Yarn.',
   },
+  {
+    id: 'factorflow-development',
+    title: 'Factorflow development updates',
+    label: 'Additive · Event dates, yarn identity, sample tests, Rope composition, process specifications, and admin batch IDs',
+    sql: FACTORFLOW_DEVELOPMENT_SQL,
+    description: 'Adds event timestamps, yarn denier/twist/category, sample IDs, Rope calculation and composition fields, an admin-managed process specification catalog with private uploads, and admin-only batch ID renames. Apply once after the base schema, authorization policies, and quantity-tracking migration.',
+  },
+  {
+    id: 'flat-yarn-sample-workflow',
+    title: 'Flat Yarn cone sampling workflow',
+    label: 'Additive · Cone registry and per-cone readings',
+    sql: FLAT_YARN_SAMPLE_WORKFLOW_SQL,
+    description: 'Creates the Flat Yarn cone/sample registry, adds sample IDs for both test and parameter measurements, and migrates existing sample labels into the registry. Apply after the base schema, authorization policies, and Factorflow development updates; safe to rerun.',
+  },
 ]
 
 export function SqlMigrationModal({ onClose }) {
-  const [selectedId, setSelectedId] = useState('stock-alerts-intake')
+  const [selectedId, setSelectedId] = useState('flat-yarn-sample-workflow')
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   const selectedMigration = MIGRATIONS.find((migration) => migration.id === selectedId)
