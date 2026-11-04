@@ -199,6 +199,23 @@ code, .mono {
   border-color: var(--text-muted);
 }
 
+.secondary-button.delete-entity-button {
+  color: #b42318;
+  border-color: #f0b5b0;
+}
+
+.secondary-button.delete-entity-button:hover,
+.primary-button.delete-entity-confirm {
+  background-color: #b42318;
+  border-color: #b42318;
+  color: #fff;
+}
+
+.primary-button.delete-entity-confirm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .link-button {
   color: var(--brand-navy);
   font-size: 13px;
@@ -2754,6 +2771,41 @@ code, .mono {
 
 .modal-dialog.sql-modal {
   max-width: 720px;
+}
+
+.modal-dialog.access-control-modal {
+  max-width: 980px;
+}
+
+.access-matrix {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.access-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 2fr) repeat(4, minmax(90px, 1fr));
+  min-width: 680px;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.access-matrix-header {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.access-matrix-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.access-matrix-toggle input {
+  accent-color: var(--accent-primary);
 }
 
 .modal-head {

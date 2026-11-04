@@ -7,7 +7,7 @@ function toLocalDateTime(value) {
   return date.toISOString().slice(0, 16)
 }
 
-export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave }) {
+export function EditBasicInfoModal({ entity, isAdmin = false, canEdit = isAdmin, onClose, onSave }) {
   const [batchId, setBatchId] = useState(entity.batch_id || '')
   const [supplier, setSupplier] = useState(entity.supplier || '')
   const [denier, setDenier] = useState(entity.denier || '')
@@ -45,7 +45,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
     setError('')
     if (
       entity.type === 'flat_yarn'
-      && isAdmin
+      && canEdit
       && criticalThreshold
       && criticalThresholdUnit !== unit
     ) {
@@ -94,7 +94,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
         updates.estimated_output_quantity = estimatedOutput ? Number(estimatedOutput) : null
         updates.wastage_percentage = wastagePercentage ? Number(wastagePercentage) : null
       }
-      if (entity.type === 'flat_yarn' && isAdmin) {
+      if (entity.type === 'flat_yarn' && canEdit) {
         updates.supplier = supplier.trim()
         updates.denier = denier.trim()
         updates.critical_quantity_threshold = criticalThreshold ? Number(criticalThreshold) : null
@@ -102,7 +102,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
       } else if (entity.type === 'flat_yarn') {
         updates.supplier = supplier.trim()
       }
-      if (entity.type === 'yarn' && isAdmin) {
+      if (entity.type === 'yarn' && canEdit) {
         updates.treatment = treatment.trim()
         updates.denier = denier.trim()
         updates.twist_direction = twistDirection || null
@@ -111,7 +111,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
       } else if (entity.type === 'yarn') {
         updates.treatment = treatment.trim()
       }
-      if (entity.type === 'rope' && isAdmin) {
+      if (entity.type === 'rope' && canEdit) {
         updates.rope_target_length = ropeTargetLength ? Number(ropeTargetLength) : null
         updates.rope_grams_per_meter = ropeGramsPerMeter ? Number(ropeGramsPerMeter) : null
       }
@@ -180,7 +180,7 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
                   value={supplier}
                   onChange={(e) => setSupplier(e.target.value)}
                   placeholder="e.g. ABC Corp"
-                  disabled={!isAdmin}
+                  disabled={!canEdit}
                 />
               </label>
             )}
@@ -193,14 +193,14 @@ export function EditBasicInfoModal({ entity, isAdmin = false, onClose, onSave })
                   value={treatment}
                   onChange={(e) => setTreatment(e.target.value)}
                   placeholder="e.g. Twisting @ 1600 TPM"
-                  disabled={!isAdmin}
+                  disabled={!canEdit}
                 />
               </label>
             )}
             {entity.type === 'flat_yarn' && (
               <label className="form-field">
                 <span>Denier</span>
-                <input value={denier} onChange={(e) => setDenier(e.target.value)} disabled={!isAdmin} />
+                <input value={denier} onChange={(e) => setDenier(e.target.value)}                 disabled={!canEdit} />
               </label>
             )}
             {entity.type === 'yarn' && isAdmin && (

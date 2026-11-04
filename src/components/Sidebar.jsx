@@ -21,9 +21,16 @@ export function Sidebar({
   storageMode,
   onOpenSqlModal,
   onOpenProcessSpecifications,
+  onOpenAccessControl,
 }) {
   const displayName = profile?.display_name || 'Namah User'
-  const displayRole = profile?.role === 'admin' ? 'admin' : 'operator'
+  const displayRole = profile?.role || 'operator'
+  const roleLabels = {
+    admin: 'Admin',
+    operator: 'Production',
+    qc: 'Quality Control',
+    viewer: 'Read-only',
+  }
   const initials = displayName
     .split(/\s+/)
     .map((p) => p[0])
@@ -99,7 +106,7 @@ export function Sidebar({
             <div className="user-name-row">
               <strong>{displayName}</strong>
               <span className={`role-badge ${displayRole}`}>
-                {displayRole === 'admin' ? 'Admin' : 'Operator'}
+                {roleLabels[displayRole] || displayRole}
               </span>
             </div>
             <small>{user?.email || 'operator@namah.internal'}</small>
@@ -107,6 +114,9 @@ export function Sidebar({
         </div>
         {isAdmin && (
           <>
+            <button className="sidebar-admin-tool" onClick={onOpenAccessControl}>
+              <Database size={14} /> Users & access
+            </button>
             <button className="sidebar-admin-tool" onClick={onOpenProcessSpecifications}>
               <Database size={14} /> Process specifications
             </button>

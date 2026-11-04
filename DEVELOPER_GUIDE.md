@@ -78,6 +78,22 @@ For an existing Trace database, open the admin **Database migrations** tool, sel
 
 When creating Flat Yarn, leave **Batch Identifier** empty to generate a temporary reference containing the supplier, intake date, and unique suffix. An admin can set or rename the identifier from the batch's **Edit** action. Temporary `INTAKE-` records cannot be selected or allocated for Yarn until they have a permanent identifier.
 
+### Repeated Yarn production lots
+
+For an existing database, apply the **Repeated Yarn production lots** migration from the admin **Database migrations** tool after the production identity/access migration below. Yarn creation treats the entered readable name as a lot base and assigns a transaction-safe sequence suffix such as `522-T2520-S-01`, `522-T2520-S-02`. The sequence preview counts prior runs with the same Flat Yarn source and specification, including older unsuffixed records with matching process/specification metadata. Each sequence remains a separate production lot with its own material allocation, quantity balance, tests, parameters, and process history.
+
+### Rope IDs, coloring, stickers, and roles
+
+After applying quantity tracking, authorization, Yarn output, Factorflow development, Flat Yarn sample workflow, and stock-alert migrations, apply **Production IDs, color lots & editable access** from the admin **Database migrations** tool. Then apply **Repeated Yarn production lots**. Rope creation generates a complete lot ID in the selected format, for example `NI-11-5423-021126` (Namah Indus, 11 mm, batch 5423, 02 Nov 2026). Dynamic Rope uses `NL`. Spool/coil cutting and numbering are not part of this traceability workflow.
+
+If the database already has the production identity/access migration installed, also apply **Coloring estimated Yarn stock fix**. It allows a Yarn lot with no actual quantity entered to use its estimated output for coloring availability, matching the stock balance shown in the app.
+
+On any Flat Yarn, Yarn, or Rope lot, **Download sticker** saves a PNG label containing the lot ID, basic material details, and a QR code that links to that lot. For partial coloring, open the Flat Yarn or Yarn source lot and choose **Create colored lot**. The system creates a separate child lot with a generated ID such as `522-C-BLACK-01`, records the consumed quantity against the source, and records the output quantity as the new lot's stock. The child retains the source material/Yarn specification and color, and gets its own Coloring process event, genealogy, tests, and parameters. Enter a lower output quantity to record process loss; repeated color lots receive their own sequence and do not merge stock or QC records.
+
+The same migration seeds and stores the editable role matrix in `role_permissions`: Admin, Production (existing `operator` role), Quality Control (`qc`), and Read-only (`viewer`). Admins can assign roles and change non-Admin permissions in **Users & access**. Admin retains full access to avoid locking the system out. Review the matrix with factory and QC leads before applying it to production accounts.
+
+To allow administrators to clean up dummy or incorrect lots, apply **Admin batch deletion** after **Production IDs, color lots & editable access**. An Admin can delete a batch from its detail page after typing the exact batch ID. Its tests, parameters, processes, sample records, genealogy links, audit entries, evidence records, and stored evidence files are deleted. To preserve traceability, a batch with downstream child lots cannot be deleted until its children are removed first; deleting a child restores its allocated quantity to its parent balance.
+
 ## 6. Create an administrator account
 
 1. In Supabase, open **Authentication** → **Users**.

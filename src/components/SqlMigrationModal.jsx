@@ -5,10 +5,14 @@ import CRITICAL_STOCK_SQL from '../../supabase/critical_stock_and_test_process_m
 import RECORD_EVIDENCE_SQL from '../../supabase/record_level_evidence_migration.sql?raw'
 import YARN_OUTPUT_SQL from '../../supabase/yarn_configuration_and_output_migration.sql?raw'
 import YARN_ESTIMATED_ALLOCATION_SQL from '../../supabase/yarn_estimated_output_allocation_migration.sql?raw'
+import YARN_REPEAT_LOT_SEQUENCE_SQL from '../../supabase/yarn_repeat_lot_sequence_migration.sql?raw'
+import PRODUCTION_IDENTITY_ACCESS_SQL from '../../supabase/production_identity_access_migration.sql?raw'
 import EVIDENCE_VIDEO_SQL from '../../supabase/evidence_video_support_migration.sql?raw'
 import STOCK_ALERTS_AND_INTAKE_SQL from '../../supabase/stock_alerts_and_flat_yarn_intake_migration.sql?raw'
 import FACTORFLOW_DEVELOPMENT_SQL from '../../supabase/factorflow_development_migration.sql?raw'
 import FLAT_YARN_SAMPLE_WORKFLOW_SQL from '../../supabase/flat_yarn_sample_workflow_migration.sql?raw'
+import COLORING_ESTIMATED_YARN_STOCK_FIX_SQL from '../../supabase/coloring_estimated_yarn_stock_fix.sql?raw'
+import ADMIN_BATCH_DELETION_SQL from '../../supabase/admin_batch_deletion_migration.sql?raw'
 
 const MIGRATIONS = [
   {
@@ -74,10 +78,38 @@ const MIGRATIONS = [
     sql: FLAT_YARN_SAMPLE_WORKFLOW_SQL,
     description: 'Creates the Flat Yarn cone/sample registry, adds sample IDs for both test and parameter measurements, and migrates existing sample labels into the registry. Apply after the base schema, authorization policies, and Factorflow development updates; safe to rerun.',
   },
+  {
+    id: 'production-identity-access',
+    title: 'Production IDs, color lots & editable access',
+    label: 'Core · Rope IDs, colored lots, and editable role permissions',
+    sql: PRODUCTION_IDENTITY_ACCESS_SQL,
+    description: 'Adds Rope family/diameter and color fields, same-type coloring allocations, and an Admin-editable Admin/Production/QC/Read-only access matrix. Apply after quantity tracking, authorization, Factorflow development, Yarn output, Flat Yarn sample workflow, and stock-alert migrations.',
+  },
+  {
+    id: 'yarn-repeat-lot-sequence',
+    title: 'Repeated Yarn production lots',
+    label: 'Additional · Unique run IDs for repeated Yarn specifications',
+    sql: YARN_REPEAT_LOT_SEQUENCE_SQL,
+    description: 'Assigns an atomic sequential suffix to each Yarn production run (for example -01, -02), counting existing unsuffixed runs with the same source and specification. Apply after the Production IDs, color lots & editable access migration.',
+  },
+  {
+    id: 'coloring-estimated-yarn-stock-fix',
+    title: 'Coloring estimated Yarn stock fix',
+    label: 'Fix · Color Yarn lots with estimated output',
+    sql: COLORING_ESTIMATED_YARN_STOCK_FIX_SQL,
+    description: 'Updates the coloring RPC to use estimated Yarn output when actual output is not recorded. Apply after Production IDs, color lots & editable access.',
+  },
+  {
+    id: 'admin-batch-deletion',
+    title: 'Admin batch deletion',
+    label: 'Admin · Delete dummy or incorrect lots safely',
+    sql: ADMIN_BATCH_DELETION_SQL,
+    description: 'Adds Admin-only batch deletion, removes evidence files and dependent records, and prevents deleting a lot that still has downstream child lots. Apply after Production IDs, color lots & editable access.',
+  },
 ]
 
 export function SqlMigrationModal({ onClose }) {
-  const [selectedId, setSelectedId] = useState('flat-yarn-sample-workflow')
+  const [selectedId, setSelectedId] = useState('production-identity-access')
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   const selectedMigration = MIGRATIONS.find((migration) => migration.id === selectedId)

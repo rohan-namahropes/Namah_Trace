@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import QRCode from 'qrcode'
 import {
   ArrowLeft,
   Anchor,
@@ -11,10 +12,15 @@ import {
   Layers,
   Paperclip,
   Pencil,
+  QrCode,
   Plus,
+  Palette,
+  Trash2,
   Wrench,
 } from 'lucide-react'
 import { GenealogyTree } from './GenealogyTree'
+import { CreateColoredLotModal } from './CreateColoredLotModal'
+import { DeleteEntityModal } from './DeleteEntityModal'
 
 const typeLabels = {
   flat_yarn: 'Flat Yarn',
@@ -30,6 +36,22 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;',
   })[character])
+}
+
+function wrapStickerText(context, value, maxWidth) {
+  const lines = []
+  let line = ''
+  for (const character of String(value)) {
+    const candidate = line + character
+    if (line && context.measureText(candidate).width > maxWidth) {
+      lines.push(line.trimEnd())
+      line = character.trimStart()
+    } else {
+      line = candidate
+    }
+  }
+  if (line.trim()) lines.push(line.trimEnd())
+  return lines
 }
 
 function formatDate(value) {
@@ -181,6 +203,11 @@ function getParentDisplayDetails(parent) {
 export function EntityDetail({
   entity,
   isAdmin = false,
+  canEdit = false,
+  canProduce = false,
+  canQc = false,
+  canProcess = false,
+  canDelete = false,
   onBack,
   onNavigateEntity,
   onViewHistory,
@@ -195,12 +222,96 @@ export function EntityDetail({
   onDeleteTest,
   onUpdateStatus,
   onCreateSample,
+  onCreateColoredLot,
+  onDeleteEntity,
 }) {
   const [newSampleId, setNewSampleId] = useState('')
   const [sampleError, setSampleError] = useState('')
   const [savingSample, setSavingSample] = useState(false)
+  const [colorLotOpen, setColorLotOpen] = useState(false)
+  const [deleteEntityOpen, setDeleteEntityOpen] = useState(false)
+  const [stickerError, setStickerError] = useState('')
 
   if (!entity) return null
+
+  const handleDownloadSticker = async () => {
+    setStickerError('')
+    try {
+      const recordUrl = new URL(window.location.href)
+      recordUrl.searchParams.set('entity', entity.id)
+      const qrDataUrl = await QRCode.toDataURL(recordUrl.toString(), {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 420,
+      })
+      const qrImage = new Image()
+      const qrImageReady = new Promise((resolve, reject) => {
+        qrImage.onload = resolve
+        qrImage.onerror = () => reject(new Error('Could not render the QR code image.'))
+      })
+      qrImage.src = qrDataUrl
+      await qrImageReady
+
+      const canvas = document.createElement('canvas')
+      canvas.width = 1200
+      canvas.height = 600
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Your browser could not create the sticker image.')
+      context.fillStyle = '#fff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      context.strokeStyle = '#172b4d'
+      context.lineWidth = 8
+      context.strokeRect(4, 4, canvas.width - 8, canvas.height - 8)
+      context.drawImage(qrImage, 55, 90, 420, 420)
+
+      const textX = 535
+      const textWidth = 600
+      context.fillStyle = '#172b4d'
+      context.font = 'bold 30px Arial, sans-serif'
+      context.fillText(`NAMAH TRACE  |  ${typeLabels[entity.type] || entity.type}`, textX, 125)
+      context.fillStyle = '#111827'
+      const batchFontSize = entity.batch_id.length > 30 ? 38 : entity.batch_id.length > 20 ? 48 : 60
+      context.font = `bold ${batchFontSize}px Arial, sans-serif`
+      const batchLines = wrapStickerText(context, entity.batch_id, textWidth)
+      batchLines.slice(0, 2).forEach((line, index) => {
+        context.fillText(line, textX, 220 + index * (batchFontSize + 8))
+      })
+
+      const details = [
+        entity.rope_diameter ? `${entity.rope_diameter} mm` : '',
+        entity.color ? `Color: ${entity.color}` : '',
+        entity.supplier ? `Supplier: ${entity.supplier}` : '',
+        entity.treatment || '',
+        entity.quantity == null ? '' : `${entity.quantity} ${entity.unit || ''}`.trim(),
+      ].filter(Boolean)
+      context.font = '28px Arial, sans-serif'
+      context.fillStyle = '#374151'
+      let detailY = 350 + Math.max(0, batchLines.length - 1) * (batchFontSize + 8)
+      for (const detail of details) {
+        for (const line of wrapStickerText(context, detail, textWidth)) {
+          if (detailY > 535) break
+          context.fillText(line, textX, detailY)
+          detailY += 38
+        }
+      }
+      context.font = '20px Arial, sans-serif'
+      context.fillStyle = '#6b7280'
+      context.fillText('SCAN QR TO OPEN THIS LOT', 80, 550)
+
+      const imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!imageBlob) throw new Error('Your browser could not export the sticker image.')
+      const imageUrl = URL.createObjectURL(imageBlob)
+      const link = document.createElement('a')
+      link.href = imageUrl
+      link.download = `${entity.batch_id.replace(/[^A-Za-z0-9_-]+/g, '-')}-sticker.png`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(imageUrl), 1000)
+    } catch (error) {
+      setStickerError(error.message || 'Unable to generate the QR sticker.')
+    }
+  }
 
   const genealogy = entity.genealogy || {
     parents: [],
@@ -588,7 +699,10 @@ export function EntityDetail({
         ${entity.denier ? `<div><dt>Denier</dt><dd>${escapeHtml(entity.denier)}</dd></div>` : ''}
         ${entity.twist_direction ? `<div><dt>Twist direction</dt><dd>${escapeHtml(entity.twist_direction === 'Other' ? entity.twist_direction_other || 'Other' : `${entity.twist_direction} twist`)}</dd></div>` : ''}
         ${entity.yarn_category ? `<div><dt>Yarn category</dt><dd>${escapeHtml(entity.yarn_category)}</dd></div>` : ''}
+        ${entity.color ? `<div><dt>Color</dt><dd>${escapeHtml(entity.color)}</dd></div>` : ''}
         ${entity.treatment ? `<div><dt>Treatment</dt><dd>${escapeHtml(entity.treatment)}</dd></div>` : ''}
+        ${entity.rope_family ? `<div><dt>Rope family</dt><dd>${escapeHtml(entity.rope_family === 'NL' ? 'Namah Lynx · Dynamic' : 'Namah Indus · Static')}</dd></div>` : ''}
+        ${entity.rope_diameter ? `<div><dt>Rope diameter</dt><dd>${escapeHtml(`${entity.rope_diameter} mm`)}</dd></div>` : ''}
         ${entity.rope_target_length != null ? `<div><dt>Target length</dt><dd>${escapeHtml(`${entity.rope_target_length} m`)}</dd></div>` : ''}
         ${entity.rope_grams_per_meter != null ? `<div><dt>Grams per meter</dt><dd>${escapeHtml(`${entity.rope_grams_per_meter} g/m`)}</dd></div>` : ''}
         ${entity.critical_quantity_threshold != null ? `<div><dt>Critical stock threshold</dt><dd>${escapeHtml(`${entity.critical_quantity_threshold} ${entity.critical_quantity_threshold_unit || entity.unit || ''}`)}</dd></div>` : ''}
@@ -628,11 +742,26 @@ export function EntityDetail({
           <button className="secondary-button" onClick={handleDownloadReport}>
             <Download size={15} /> Export
           </button>
-          <button className="secondary-button" onClick={onOpenEditModal}>
-            <Pencil size={15} /> Edit
+          <button type="button" className="secondary-button" onClick={handleDownloadSticker}>
+            <QrCode size={15} /> Download sticker
           </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="secondary-button delete-entity-button"
+              onClick={() => setDeleteEntityOpen(true)}
+            >
+              <Trash2 size={15} /> Delete batch
+            </button>
+          )}
+          {canEdit && (
+            <button className="secondary-button" onClick={onOpenEditModal}>
+              <Pencil size={15} /> Edit
+            </button>
+          )}
         </div>
       </div>
+      {stickerError && <div className="login-error-box" role="alert">{stickerError}</div>}
 
       <header className="detail-heading">
         <div className={`detail-type-badge ${entity.type}`}>
@@ -651,6 +780,7 @@ export function EntityDetail({
             value={entity.status || 'In Progress'}
             onChange={(event) => onUpdateStatus(event.target.value)}
             aria-label="Batch status"
+            disabled={!canEdit}
           >
             <option value="In Progress">In Progress</option>
             <option value="Completed">Completed</option>
@@ -678,9 +808,16 @@ export function EntityDetail({
             </div>
           )}
           {entity.yarn_category && <div><span>Yarn category</span><strong>{entity.yarn_category}</strong></div>}
+          {entity.color && <div><span>Color</span><strong>{entity.color}</strong></div>}
           {entity.treatment && <div><span>Treatment</span><strong>{entity.treatment}</strong></div>}
           {entity.type === 'rope' && entity.rope_target_length != null && (
             <div><span>Target length</span><strong>{entity.rope_target_length} m</strong></div>
+          )}
+          {entity.type === 'rope' && entity.rope_family && (
+            <div><span>Rope family</span><strong>{entity.rope_family === 'NL' ? 'Namah Lynx · Dynamic' : 'Namah Indus · Static'}</strong></div>
+          )}
+          {entity.type === 'rope' && entity.rope_diameter && (
+            <div><span>Diameter</span><strong>{entity.rope_diameter} mm</strong></div>
           )}
           {entity.type === 'rope' && entity.rope_grams_per_meter != null && (
             <div><span>Grams per meter</span><strong>{entity.rope_grams_per_meter} g/m</strong></div>
@@ -748,7 +885,7 @@ export function EntityDetail({
               Cone sampling is unavailable because its database migration has not been applied. Existing batch information remains available; apply “Flat Yarn cone sampling workflow” to enable cone-based entries.
             </div>
           )}
-          <form className="form-grid-2" onSubmit={handleCreateSample}>
+          {canQc && <form className="form-grid-2" onSubmit={handleCreateSample}>
             <label className="form-field">
               <span>Cone / sample ID</span>
               <input
@@ -766,7 +903,7 @@ export function EntityDetail({
                 <Plus size={15} /> {savingSample ? 'Adding...' : 'Add cone'}
               </button>
             </div>
-          </form>
+          </form>}
           {sampleError && <div className="modal-error-alert" role="alert">{sampleError}</div>}
           {samples.length > 0 ? (
             <div className="history-list">
@@ -856,10 +993,15 @@ export function EntityDetail({
             )}
           </div>
           <div className="lifecycle-actions">
-            <button className="secondary-button" onClick={onOpenAddProcessModal}>Process</button>
-            <button className="secondary-button" onClick={onOpenAddParamModal}>Parameter</button>
-            <button className="secondary-button" onClick={onOpenAddTestModal}>Test</button>
-            <button className="secondary-button" onClick={onOpenUploadEvidenceModal}>Evidence</button>
+            {canProcess && <button className="secondary-button" onClick={onOpenAddProcessModal}>Process</button>}
+            {canQc && <button className="secondary-button" onClick={onOpenAddParamModal}>Parameter</button>}
+            {canQc && <button className="secondary-button" onClick={onOpenAddTestModal}>Test</button>}
+            {canQc && <button className="secondary-button" onClick={onOpenUploadEvidenceModal}>Evidence</button>}
+            {canProduce && ['flat_yarn', 'yarn'].includes(entity.type) && entity.consumptionKnown && entity.quantityRemaining > 0 && (
+              <button className="secondary-button" onClick={() => setColorLotOpen(true)}>
+                <Palette size={15} /> Create colored lot
+              </button>
+            )}
           </div>
         </div>
 
@@ -892,7 +1034,7 @@ export function EntityDetail({
                   )}
                   {entry.remarks && <p className="timeline-entry-remarks">{entry.remarks}</p>}
                   {entry.actor && <span className="timeline-entry-actor">{entry.actor}</span>}
-                  {entry.evidenceTarget && (
+                  {canQc && entry.evidenceTarget && (
                     <button
                       type="button"
                       className="timeline-evidence-link"
@@ -901,7 +1043,7 @@ export function EntityDetail({
                       <Paperclip size={13} /> Attach evidence
                     </button>
                   )}
-                  {isAdmin && entry.className === 'parameter' && (
+                  {canDelete && entry.className === 'parameter' && (
                     <button
                       className="timeline-delete-action"
                       onClick={() => onDeleteParam(entry.recordId, entry.title)}
@@ -909,7 +1051,7 @@ export function EntityDetail({
                       Remove parameter
                     </button>
                   )}
-                  {isAdmin && entry.className === 'test' && (
+                  {canDelete && entry.className === 'test' && (
                     <button
                       className="timeline-delete-action"
                       onClick={() => onDeleteTest(entry.recordId, entry.title)}
@@ -962,7 +1104,20 @@ export function EntityDetail({
           </button>
         )}
       </details>
-
+      {colorLotOpen && (
+        <CreateColoredLotModal
+          source={entity}
+          onClose={() => setColorLotOpen(false)}
+          onCreate={onCreateColoredLot}
+        />
+      )}
+      {deleteEntityOpen && (
+        <DeleteEntityModal
+          entity={entity}
+          onClose={() => setDeleteEntityOpen(false)}
+          onDelete={onDeleteEntity}
+        />
+      )}
     </div>
   )
 }

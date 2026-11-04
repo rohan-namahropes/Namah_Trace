@@ -498,6 +498,40 @@ export async function getCurrentUserProfile(userId) {
   })
 }
 
+export async function getRoleAccessConfiguration() {
+  return withResult(async () => queryData(
+    requireSupabase().from('role_permissions')
+      .select('role, display_name, can_view, can_produce, can_edit, can_process, can_qc, can_delete, can_manage_users')
+      .order('role')
+  ))
+}
+
+export async function saveRoleAccessConfiguration(role, changes) {
+  return withResult(async () => queryData(
+    requireSupabase().from('role_permissions')
+      .update(changes)
+      .eq('role', role)
+      .select()
+      .single()
+  ))
+}
+
+export async function listUserProfiles() {
+  return withResult(async () => queryData(
+    requireSupabase().rpc('list_user_profiles_for_access')
+  ))
+}
+
+export async function updateUserRole(userId, role) {
+  return withResult(async () => queryData(
+    requireSupabase().from('profiles')
+      .update({ role })
+      .eq('id', userId)
+      .select('id, display_name, email, role')
+      .single()
+  ))
+}
+
 export async function listDismissedStockAlerts(userId) {
   return withResult(async () => {
     const rows = await queryData(
@@ -540,10 +574,16 @@ export async function listEntities(type = null) {
     const links = entities.length
       ? await queryData(
         db.from('entity_genealogy')
-          .select('parent_entity_id, quantity_used, unit')
+        .select('parent_entity_id, child_entity_id, quantity_used, unit')
           .in('parent_entity_id', entities.map((entity) => entity.id))
       )
       : []
+    const parentIdsByChild = new Map()
+    for (const link of links) {
+    const parentIds = parentIdsByChild.get(link.child_entity_id) || []
+    parentIds.push(link.parent_entity_id)
+    parentIdsByChild.set(link.child_entity_id, parentIds)
+    }
     return enrichEntities(entities.map((entity) => {
       const balance = quantityBalance(entity, links)
       const lowStock = entity.type === 'flat_yarn'
@@ -561,6 +601,7 @@ export async function listEntities(type = null) {
       return {
         ...entity,
         ...balance,
+        parentEntityIds: parentIdsByChild.get(entity.id) || [],
         lowStock,
         stockDepleted,
         thresholdUnitProblem,
@@ -730,6 +771,13 @@ export async function createYarnBatch({
         type: 'yarn',
         batch_id: String(batchId).trim(),
         treatment: treatment?.trim() || null,
+        denier: String(denier || '').trim() || null,
+        twist_direction: twistDirection || null,
+        twist_direction_other: twistDirection === 'Other'
+          ? String(twistDirectionOther || '').trim() || null
+          : null,
+        yarn_category: String(yarnCategory || '').trim() || null,
+        occurred_at: occurredAt ? new Date(occurredAt).toISOString() : null,
         quantity: quantity == null || quantity === '' ? null : Number(quantity),
         unit: unit || 'kg',
         status: 'In Progress',
@@ -752,8 +800,14 @@ export async function createYarnBatch({
       yarn_category: String(yarnCategory || '').trim() || null,
     }
     if (occurredAt) metadata.occurred_at = new Date(occurredAt).toISOString()
+    let createdEntity
     try {
-      await queryData(db.from('entities').update(metadata).eq('id', entityId).select('id').single())
+      createdEntity = await queryData(
+        db.from('entities')
+          .select('id, batch_id')
+          .eq('id', entityId)
+          .single()
+      )
     } catch (error) {
       throw committedOperationError(error, 'Yarn batch')
     }
@@ -768,7 +822,7 @@ export async function createYarnBatch({
     return {
       id: entityId,
       type: 'yarn',
-      batch_id: String(batchId).trim(),
+      batch_id: createdEntity.batch_id,
       ...metadata,
       estimated_output_quantity: inputUnit === unit
         ? Number(inputQuantity) * (100 - percentage) / 100
@@ -942,6 +996,8 @@ export async function saveYarnConfiguration({ name, suffix, twistingDenier, plyi
 
 export async function createRopeBatch({
   batchId,
+  ropeFamily,
+  ropeDiameter,
   allocations,
   quantity,
   unit = 'meters',
@@ -1028,6 +1084,15 @@ export async function createRopeBatch({
     } catch (error) {
       throw committedOperationError(error, 'Rope batch')
     }
+    try {
+      await queryData(db.rpc('save_rope_identity_metadata', {
+        p_entity_id: entityId,
+        p_rope_family: ropeFamily,
+        p_rope_diameter: ropeDiameter,
+      }))
+    } catch (error) {
+      throw committedOperationError(error, 'Rope batch')
+    }
     if (targetLength != null || gramsPerMeter != null || allocations.some((allocation) => allocation.componentRole)) {
       try {
         await writeAuditLog(entityId, 'Recorded Rope composition estimate', {
@@ -1046,7 +1111,72 @@ export async function createRopeBatch({
         throw committedAuditError(error)
       }
     }
-    return { id: entityId, type: 'rope', batch_id: String(batchId).trim() }
+    return {
+      id: entityId,
+      type: 'rope',
+      batch_id: String(batchId).trim(),
+      rope_family: ropeFamily,
+      rope_diameter: ropeDiameter,
+    }
+  })
+}
+
+export async function createColoredMaterialLot({
+  parentEntityId,
+  color,
+  quantityUsed,
+  outputQuantity,
+  unit,
+  occurredAt,
+  remarks,
+}) {
+  return withResult(async () => {
+    const entityId = await queryData(requireSupabase().rpc('create_colored_material_lot', {
+      p_parent_entity_id: parentEntityId,
+      p_color: String(color || '').trim(),
+      p_quantity_used: Number(quantityUsed),
+      p_output_quantity: Number(outputQuantity),
+      p_unit: unit,
+      p_occurred_at: occurredAt ? new Date(occurredAt).toISOString() : null,
+      p_remarks: String(remarks || '').trim() || null,
+    }))
+    let entity
+    try {
+      entity = await queryData(
+        requireSupabase().from('entities').select('id, type, batch_id, color').eq('id', entityId).single()
+      )
+    } catch (error) {
+      throw committedOperationError(error, 'Colored material lot')
+    }
+    return entity
+  })
+}
+
+export async function deleteEntityBatch(entityId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const evidence = await queryData(
+      db.from('entity_evidence')
+        .select('storage_path')
+        .eq('entity_id', entityId)
+    )
+    const batchId = await queryData(db.rpc('admin_delete_entity_batch', {
+      p_entity_id: entityId,
+    }))
+
+    const storagePaths = evidence.map((item) => item.storage_path).filter(Boolean)
+    if (storagePaths.length) {
+      const { error } = await db.storage.from(EVIDENCE_BUCKET).remove(storagePaths)
+      if (error) {
+        const committedError = new Error(
+          `Batch ${batchId} was deleted, but some stored evidence files could not be removed: ${error.message}`
+        )
+        committedError.operationCommitted = true
+        throw committedError
+      }
+    }
+
+    return { id: entityId, batch_id: batchId }
   })
 }
 

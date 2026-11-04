@@ -18,9 +18,38 @@ function normalizeYarnPattern(value) {
     .replace(/[^A-Za-z0-9_-]/g, '')
 }
 
+function getNextYarnSequence(baseBatchId, yarns, parentEntityId, specification) {
+  const prefix = `${baseBatchId}-`
+  let highestSequence = 0
+  let matchingRuns = 0
+  for (const yarn of yarns) {
+    if (yarn.batch_id?.startsWith(prefix)) {
+      const suffix = yarn.batch_id.slice(prefix.length)
+      if (/^\d+$/.test(suffix)) highestSequence = Math.max(highestSequence, Number(suffix))
+    }
+    if (
+      yarn.parentEntityIds?.includes(parentEntityId)
+      && yarn.treatment === specification.treatment
+      && (yarn.denier || null) === specification.denier
+      && (yarn.twist_direction || null) === specification.twistDirection
+      && (yarn.twist_direction_other || null) === specification.twistDirectionOther
+    ) {
+      matchingRuns += 1
+    }
+  }
+  return Math.max(highestSequence, matchingRuns) + 1
+}
+
 function getCurrentLocalDateTime() {
   const localDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   return localDate.toISOString().slice(0, 16)
+}
+
+function makeRopeLotId(family, diameter, batchNumber, occurredAt) {
+  const date = String(occurredAt || '').slice(0, 10)
+  if (!family || !diameter.trim() || !batchNumber.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return ''
+  const dateCode = `${date.slice(8, 10)}${date.slice(5, 7)}${date.slice(2, 4)}`
+  return `${family}-${diameter.trim().replace(/\s*mm$/i, '')}-${batchNumber.trim()}-${dateCode}`
 }
 
 export function CreateEntityModal({
@@ -76,7 +105,9 @@ export function CreateEntityModal({
   const [yarnRemarks, setYarnRemarks] = useState('')
 
   // Rope fields
-  const [ropeBatchId, setRopeBatchId] = useState('')
+  const [ropeFamily, setRopeFamily] = useState('NL')
+  const [ropeDiameter, setRopeDiameter] = useState('')
+  const [ropeBatchNumber, setRopeBatchNumber] = useState('')
   const [selectedParentYarnIds, setSelectedParentYarnIds] = useState([])
   const [ropeInputQuantities, setRopeInputQuantities] = useState({})
   const [ropeComponents, setRopeComponents] = useState({})
@@ -86,6 +117,7 @@ export function CreateEntityModal({
   const [ropeUnit, setRopeUnit] = useState('meters')
   const [ropeOccurredAt, setRopeOccurredAt] = useState(() => getCurrentLocalDateTime())
   const [ropeNotes, setRopeNotes] = useState('')
+  const ropeBatchId = makeRopeLotId(ropeFamily, ropeDiameter, ropeBatchNumber, ropeOccurredAt)
 
   const hasAvailableMaterial = (entity) =>
     entity?.consumptionKnown
@@ -120,10 +152,36 @@ export function CreateEntityModal({
     && Number(wastagePercentage) <= 100
     ? Number(yarnInputQuantity) * (100 - Number(wastagePercentage)) / 100
     : null
-  const updateYarnBatchId = (parent = selectedFlatYarn, processType = yarnProcessType, patternValue = yarnPatternValue) => {
+  const updateYarnBatchId = (
+    parent = selectedFlatYarn,
+    processType = yarnProcessType,
+    patternValue = yarnPatternValue,
+    twistDirection = yarnTwistDirection,
+    twistDirectionOther = yarnTwistOther,
+  ) => {
     const suffix = normalizeYarnPattern(patternValue)
-    if (parent) setYarnBatchId(`${parent.batch_id}-${processType}${suffix}`)
+    if (!parent) return
+
+    const directionSuffix = twistDirection === 'Other'
+      ? `OTHER-${normalizeYarnPattern(twistDirectionOther)}`
+      : twistDirection
+    setYarnBatchId([
+      parent.batch_id,
+      `${processType}${suffix}`,
+      directionSuffix,
+    ].filter(Boolean).join('-'))
   }
+  const yarnTreatment = yarnProcessType === 'T'
+    ? `Twisting ${yarnPatternValue.trim()} denier`
+    : `Plying ${yarnPatternValue.trim()}`
+  const nextYarnSequence = yarnBatchId
+    ? getNextYarnSequence(yarnBatchId.trim(), availableYarns, selectedParentFlatYarnId, {
+      treatment: yarnTreatment,
+      denier: yarnProcessType === 'T' ? yarnPatternValue.trim() : null,
+      twistDirection: yarnTwistDirection || null,
+      twistDirectionOther: yarnTwistDirection === 'Other' ? yarnTwistOther.trim() || null : null,
+    })
+    : null
 
   const handleToggleYarnSelection = (yarnId) => {
     const parent = availableYarns.find((item) => item.id === yarnId)
@@ -164,7 +222,7 @@ export function CreateEntityModal({
         })
         if (res.error) throw res.error
       } else if (entityType === 'yarn') {
-        if (!yarnBatchId.trim()) throw new Error('Yarn Batch ID is required (e.g. 123-T1680 or 123-Pvalue).')
+        if (!yarnBatchId.trim()) throw new Error('Yarn lot base ID is required.')
         if (!selectedParentFlatYarnId) throw new Error('You must select exactly one parent Flat Yarn batch.')
         if (!yarnPatternValue.trim()) throw new Error('Enter a denier or plying value.')
         if (!yarnTwistDirection) throw new Error('Select the Yarn twist direction.')
@@ -189,9 +247,7 @@ export function CreateEntityModal({
         const res = await onCreateYarnBatch({
           batchId: yarnBatchId.trim(),
           parentEntityId: selectedParentFlatYarnId,
-          treatment: yarnProcessType === 'T'
-            ? `Twisting ${yarnPatternValue.trim()} denier`
-            : `Plying ${yarnPatternValue.trim()}`,
+          treatment: yarnTreatment,
           denier: yarnProcessType === 'T' ? yarnPatternValue.trim() : '',
           twistDirection: yarnTwistDirection,
           twistDirectionOther: yarnTwistOther.trim(),
@@ -206,7 +262,9 @@ export function CreateEntityModal({
         })
         if (res.error) throw res.error
       } else if (entityType === 'rope') {
-        if (!ropeBatchId.trim()) throw new Error('Rope Batch ID is required (e.g. 5417).')
+        if (!ropeFamily || !ropeDiameter.trim() || !ropeBatchNumber.trim()) {
+          throw new Error('Select Rope family and enter the diameter and batch number.')
+        }
         if (selectedParentYarnIds.length === 0) {
           throw new Error('You must select at least one parent Yarn Batch for composition.')
         }
@@ -256,7 +314,9 @@ export function CreateEntityModal({
         })
 
         const res = await onCreateRopeBatch({
-          batchId: ropeBatchId.trim(),
+          batchId: ropeBatchId,
+          ropeFamily,
+          ropeDiameter: ropeDiameter.trim().replace(/\s*mm$/i, ''),
           allocations,
           quantity: ropeQuantity ? Number(ropeQuantity) : null,
           unit: ropeUnit,
@@ -521,7 +581,13 @@ export function CreateEntityModal({
               <div className="form-grid-2">
                 <label className="form-field">
                   <span>Twist direction *</span>
-                  <select value={yarnTwistDirection} onChange={(e) => setYarnTwistDirection(e.target.value)}>
+                  <select
+                    value={yarnTwistDirection}
+                    onChange={(e) => {
+                      setYarnTwistDirection(e.target.value)
+                      updateYarnBatchId(selectedFlatYarn, yarnProcessType, yarnPatternValue, e.target.value)
+                    }}
+                  >
                     <option value="">Select direction</option>
                     <option value="S">S twist</option>
                     <option value="Z">Z twist</option>
@@ -543,7 +609,19 @@ export function CreateEntityModal({
                   {yarnTwistDirection === 'Other' ? (
                     <label className="form-field">
                       <span>Other twist direction *</span>
-                      <input value={yarnTwistOther} onChange={(e) => setYarnTwistOther(e.target.value)} />
+                      <input
+                        value={yarnTwistOther}
+                        onChange={(e) => {
+                          setYarnTwistOther(e.target.value)
+                          updateYarnBatchId(
+                            selectedFlatYarn,
+                            yarnProcessType,
+                            yarnPatternValue,
+                            'Other',
+                            e.target.value
+                          )
+                        }}
+                      />
                     </label>
                   ) : <span />}
                 </div>
@@ -551,15 +629,15 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Generated Yarn Batch ID *</span>
+                  <span>Yarn lot base ID *</span>
                   <input
                     type="text"
                     required
-                    placeholder="Parent batch + yarn pattern"
+                    placeholder="Source batch + process + direction"
                     value={yarnBatchId}
                     onChange={(e) => setYarnBatchId(e.target.value)}
                   />
-                  <small className="field-hint">Generated from the parent batch and pattern; edit only if needed to avoid a duplicate ID.</small>
+                  <small className="field-hint">A unique sequence suffix is assigned for each production run.</small>
                 </label>
                 <label className="form-field">
                   <span>When manufactured</span>
@@ -571,6 +649,15 @@ export function CreateEntityModal({
                   />
                 </label>
               </div>
+              {nextYarnSequence != null && (
+                <div className="form-info-callout blue" role="status">
+                  <strong>This will be Yarn sequence {nextYarnSequence}.</strong>
+                  <p>
+                    Expected lot ID: {yarnBatchId}-{String(nextYarnSequence).padStart(2, '0')}.
+                    The server confirms the sequence when the batch is saved.
+                  </p>
+                </div>
+              )}
 
               <div className="form-grid-2">
                 <label className="form-field">
@@ -775,13 +862,30 @@ export function CreateEntityModal({
 
               <div className="form-grid-2">
                 <label className="form-field">
-                  <span>Rope Batch ID *</span>
+                  <span>Rope family *</span>
+                  <select value={ropeFamily} onChange={(e) => setRopeFamily(e.target.value)}>
+                    <option value="NL">Namah Lynx (Dynamic) · NL</option>
+                    <option value="NI">Namah Indus (Static) · NI</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>Diameter (mm) *</span>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 5417"
-                    value={ropeBatchId}
-                    onChange={(e) => setRopeBatchId(e.target.value)}
+                    placeholder="e.g. 10.5"
+                    value={ropeDiameter}
+                    onChange={(e) => setRopeDiameter(e.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Rope batch number *</span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 5419"
+                    value={ropeBatchNumber}
+                    onChange={(e) => setRopeBatchNumber(e.target.value)}
                   />
                 </label>
                 <label className="form-field">
@@ -792,6 +896,11 @@ export function CreateEntityModal({
                     value={ropeOccurredAt}
                     onChange={(e) => setRopeOccurredAt(e.target.value)}
                   />
+                </label>
+                <label className="form-field">
+                  <span>Generated Rope lot ID</span>
+                  <input type="text" value={ropeBatchId} readOnly placeholder="Select family, diameter, batch, and date" />
+                  <small className="field-hint">Spool and coil numbers are separate downstream and are not tracked here.</small>
                 </label>
 
                 <label className="form-field">
