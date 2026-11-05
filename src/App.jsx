@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase'
 import {
   listEntities,
   getEntity,
+  getConnectedGenealogy,
   createFlatYarn,
   createEntitySample,
   createYarnBatch,
@@ -385,6 +386,8 @@ export function App() {
     return finishMutation(result, null)
   }
 
+  const handleLoadFullGenealogy = async (entityId) => getConnectedGenealogy(entityId)
+
   const handleDeleteEntity = async (entityId) => {
     const result = await deleteEntityBatch(entityId)
     if (result.data || result.error?.operationCommitted) {
@@ -667,6 +670,7 @@ export function App() {
               onOpenAddParamModal={() => setAddParamModalOpen(true)}
               onCreateSample={handleCreateEntitySample}
               onCreateColoredLot={handleCreateColoredLot}
+              onLoadFullGenealogy={handleLoadFullGenealogy}
               onDeleteEntity={handleDeleteEntity}
               onOpenAddTestModal={() => setAddTestModalOpen(true)}
               onOpenAddProcessModal={handleOpenAddProcessModal}

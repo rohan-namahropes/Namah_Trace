@@ -83,7 +83,7 @@ export function CreateEntityModal({
       && entity.quantityRemaining > 0
       && !entity.batch_id?.toUpperCase().startsWith('INTAKE-')
     ))
-    return parent ? `${parent.batch_id}-T1680` : ''
+    return parent ? `${parent.batch_id}-T` : ''
   })
   const [selectedParentFlatYarnId, setSelectedParentFlatYarnId] = useState(
     availableFlatYarns.find((entity) => (
@@ -93,9 +93,11 @@ export function CreateEntityModal({
     ))?.id || ''
   )
   const [yarnProcessType, setYarnProcessType] = useState('T')
-  const [yarnPatternValue, setYarnPatternValue] = useState('1680')
+  const [yarnPatternValue, setYarnPatternValue] = useState('')
   const [yarnTwistDirection, setYarnTwistDirection] = useState('')
   const [yarnTwistOther, setYarnTwistOther] = useState('')
+  const [yarnTwistType, setYarnTwistType] = useState('')
+  const [yarnTwistTypeOther, setYarnTwistTypeOther] = useState('')
   const [yarnCategory, setYarnCategory] = useState('')
   const [yarnOccurredAt, setYarnOccurredAt] = useState(() => getCurrentLocalDateTime())
   const [yarnInputQuantity, setYarnInputQuantity] = useState('')
@@ -229,6 +231,12 @@ export function CreateEntityModal({
         if (yarnTwistDirection === 'Other' && !yarnTwistOther.trim()) {
           throw new Error('Describe the other Yarn twist direction.')
         }
+        if (yarnProcessType === 'T' && !yarnTwistType) {
+          throw new Error('Select the twist type.')
+        }
+        if (yarnProcessType === 'T' && yarnTwistType === 'Custom' && !yarnTwistTypeOther.trim()) {
+          throw new Error('Describe the custom twist type.')
+        }
         if (
           !Number.isFinite(Number(wastagePercentage))
           || Number(wastagePercentage) < 0
@@ -251,6 +259,10 @@ export function CreateEntityModal({
           denier: yarnProcessType === 'T' ? yarnPatternValue.trim() : '',
           twistDirection: yarnTwistDirection,
           twistDirectionOther: yarnTwistOther.trim(),
+          twistType: yarnProcessType === 'T' ? yarnTwistType : null,
+          twistTypeOther: yarnProcessType === 'T' && yarnTwistType === 'Custom'
+            ? yarnTwistTypeOther.trim()
+            : null,
           yarnCategory,
           occurredAt: yarnOccurredAt,
           inputQuantity: Number(yarnInputQuantity),
@@ -559,8 +571,8 @@ export function CreateEntityModal({
                   <input
                     type="text"
                     required
-                    list={yarnProcessType === 'T' ? 'twisting-denier-options' : undefined}
-                    placeholder={yarnProcessType === 'T' ? 'e.g. 1680' : 'Enter plying value'}
+                    inputMode="text"
+                    placeholder={yarnProcessType === 'T' ? 'Enter denier or choose a common value' : 'Enter plying value'}
                     value={yarnPatternValue}
                     onChange={(e) => {
                       setYarnPatternValue(e.target.value)
@@ -568,15 +580,54 @@ export function CreateEntityModal({
                     }}
                   />
                   {yarnProcessType === 'T' && (
-                    <datalist id="twisting-denier-options">
-                      <option value="1680" />
-                      <option value="2520" />
-                      <option value="3360" />
-                      <option value="9600 1/3" />
-                    </datalist>
+                    <div className="yarn-denier-choices" aria-label="Common denier values">
+                      {['1680', '2520', '3360', '9600 1/3'].map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`preset-chip-btn ${yarnPatternValue === value ? 'active' : ''}`}
+                          aria-pressed={yarnPatternValue === value}
+                          onClick={() => {
+                            setYarnPatternValue(value)
+                            updateYarnBatchId(selectedFlatYarn, yarnProcessType, value)
+                          }}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </label>
               </div>
+
+              {yarnProcessType === 'T' && (
+                <div className="form-field">
+                  <span>Twist type *</span>
+                  <div className="yarn-twist-type-choices" role="group" aria-label="Twist type">
+                    {['Type 1', 'Type 2', 'Custom'].map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        className={`preset-chip-btn ${yarnTwistType === type ? 'active' : ''}`}
+                        aria-pressed={yarnTwistType === type}
+                        onClick={() => setYarnTwistType(type)}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                  {yarnTwistType === 'Custom' && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Describe the twist type"
+                      value={yarnTwistTypeOther}
+                      onChange={(event) => setYarnTwistTypeOther(event.target.value)}
+                    />
+                  )}
+                  <small className="field-hint">Choose the twisting process used for this Yarn batch.</small>
+                </div>
+              )}
 
               <div className="form-grid-2">
                 <label className="form-field">

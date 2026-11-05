@@ -620,6 +620,64 @@ export async function getEntity(idOrBatchId) {
   })
 }
 
+export async function getConnectedGenealogy(entityId) {
+  return withResult(async () => {
+    const db = requireSupabase()
+    const linksById = new Map()
+    const visitedEntityIds = new Set([entityId])
+    let frontier = [entityId]
+
+    while (frontier.length) {
+      const currentFrontier = frontier
+      frontier = []
+      for (let index = 0; index < currentFrontier.length; index += 100) {
+        const ids = currentFrontier.slice(index, index + 100)
+        const [children, parents] = await Promise.all([
+          queryData(db.from('entity_genealogy').select('*').in('parent_entity_id', ids)),
+          queryData(db.from('entity_genealogy').select('*').in('child_entity_id', ids)),
+        ])
+        for (const link of [...children, ...parents]) {
+          linksById.set(link.id, link)
+          for (const linkedEntityId of [link.parent_entity_id, link.child_entity_id]) {
+            if (!visitedEntityIds.has(linkedEntityId)) {
+              visitedEntityIds.add(linkedEntityId)
+              frontier.push(linkedEntityId)
+            }
+          }
+        }
+      }
+    }
+
+    const entityIds = [...visitedEntityIds]
+    const entities = []
+    for (let index = 0; index < entityIds.length; index += 100) {
+      entities.push(...await queryData(
+        db.from('entities')
+          .select('id, batch_id, type, quantity, estimated_output_quantity, unit')
+          .in('id', entityIds.slice(index, index + 100))
+      ))
+    }
+    const entitiesById = new Map(entities.map((entity) => [entity.id, entity]))
+
+    return [...linksById.values()].flatMap((link) => {
+      const parent = entitiesById.get(link.parent_entity_id)
+      const child = entitiesById.get(link.child_entity_id)
+      if (!parent || !child) return []
+      return [{
+        id: link.id,
+        parentId: parent.id,
+        parentBatchId: parent.batch_id,
+        parentType: parent.type,
+        childId: child.id,
+        childBatchId: child.batch_id,
+        childType: child.type,
+        quantityUsed: link.quantity_used,
+        unit: link.unit,
+      }]
+    })
+  })
+}
+
 export async function createEntitySample(entityId, sampleId) {
   return withResult(async () => {
     const normalizedSampleId = String(sampleId || '').trim()
@@ -742,6 +800,8 @@ export async function createYarnBatch({
   denier,
   twistDirection,
   twistDirectionOther,
+  twistType,
+  twistTypeOther,
   yarnCategory,
   occurredAt,
   inputQuantity,
@@ -758,6 +818,12 @@ export async function createYarnBatch({
     }
     if (twistDirection === 'Other' && !String(twistDirectionOther || '').trim()) {
       throw new Error('Describe the other twist direction.')
+    }
+    const twistTypeName = twistType === 'Custom'
+      ? String(twistTypeOther || '').trim()
+      : String(twistType || '').trim()
+    if (treatment?.trim().toLowerCase().startsWith('twisting') && !twistTypeName) {
+      throw new Error('Select or enter the twist type.')
     }
     if (!inputQuantity || Number(inputQuantity) <= 0) {
       throw new Error('Quantity consumed from the Flat Yarn parent is required.')
@@ -800,6 +866,12 @@ export async function createYarnBatch({
       yarn_category: String(yarnCategory || '').trim() || null,
     }
     if (occurredAt) metadata.occurred_at = new Date(occurredAt).toISOString()
+    if (twistType) {
+      metadata.twist_type = twistType
+      metadata.twist_type_other = twistType === 'Custom'
+        ? String(twistTypeOther || '').trim() || null
+        : null
+    }
     let createdEntity
     try {
       createdEntity = await queryData(
@@ -810,6 +882,22 @@ export async function createYarnBatch({
       )
     } catch (error) {
       throw committedOperationError(error, 'Yarn batch')
+    }
+    if (twistTypeName) {
+      try {
+        await queryData(db.from('entity_processes').insert({
+          entity_id: entityId,
+          process_name: `Twisting · ${twistTypeName}`,
+          process_family: 'Twisting',
+          process_type: twistTypeName,
+          process_type_specification_id: null,
+          specification: '',
+          remarks: remarks?.trim() || '',
+          ...(occurredAt ? { performed_at: new Date(occurredAt).toISOString() } : {}),
+        }).select('id').single())
+      } catch (error) {
+        throw committedOperationError(error, 'Yarn batch')
+      }
     }
     try {
       await writeAuditLog(entityId, 'Recorded Yarn batch specifications', {

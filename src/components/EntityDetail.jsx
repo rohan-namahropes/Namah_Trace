@@ -17,6 +17,7 @@ import {
   Palette,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react'
 import { GenealogyTree } from './GenealogyTree'
 import { CreateColoredLotModal } from './CreateColoredLotModal'
@@ -224,6 +225,7 @@ export function EntityDetail({
   onCreateSample,
   onCreateColoredLot,
   onDeleteEntity,
+  onLoadFullGenealogy,
 }) {
   const [newSampleId, setNewSampleId] = useState('')
   const [sampleError, setSampleError] = useState('')
@@ -231,11 +233,14 @@ export function EntityDetail({
   const [colorLotOpen, setColorLotOpen] = useState(false)
   const [deleteEntityOpen, setDeleteEntityOpen] = useState(false)
   const [stickerError, setStickerError] = useState('')
+  const [stickerPreview, setStickerPreview] = useState(null)
+  const [stickerGenerating, setStickerGenerating] = useState(false)
 
   if (!entity) return null
 
   const handleDownloadSticker = async () => {
     setStickerError('')
+    setStickerGenerating(true)
     try {
       const recordUrl = new URL(window.location.href)
       recordUrl.searchParams.set('entity', entity.id)
@@ -298,19 +303,25 @@ export function EntityDetail({
       context.fillStyle = '#6b7280'
       context.fillText('SCAN QR TO OPEN THIS LOT', 80, 550)
 
-      const imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-      if (!imageBlob) throw new Error('Your browser could not export the sticker image.')
-      const imageUrl = URL.createObjectURL(imageBlob)
-      const link = document.createElement('a')
-      link.href = imageUrl
-      link.download = `${entity.batch_id.replace(/[^A-Za-z0-9_-]+/g, '-')}-sticker.png`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(imageUrl), 1000)
+      setStickerPreview({
+        stickerDataUrl: canvas.toDataURL('image/png'),
+        qrDataUrl,
+        fileBase: entity.batch_id.replace(/[^A-Za-z0-9_-]+/g, '-'),
+      })
     } catch (error) {
       setStickerError(error.message || 'Unable to generate the QR sticker.')
+    } finally {
+      setStickerGenerating(false)
     }
+  }
+
+  const downloadStickerAsset = (dataUrl, fileName) => {
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
   }
 
   const genealogy = entity.genealogy || {
@@ -742,8 +753,8 @@ export function EntityDetail({
           <button className="secondary-button" onClick={handleDownloadReport}>
             <Download size={15} /> Export
           </button>
-          <button type="button" className="secondary-button" onClick={handleDownloadSticker}>
-            <QrCode size={15} /> Download sticker
+          <button type="button" className="secondary-button" onClick={handleDownloadSticker} disabled={stickerGenerating}>
+            <QrCode size={15} /> {stickerGenerating ? 'Preparing sticker...' : 'Sticker'}
           </button>
           {isAdmin && (
             <button
@@ -762,6 +773,60 @@ export function EntityDetail({
         </div>
       </div>
       {stickerError && <div className="login-error-box" role="alert">{stickerError}</div>}
+      {stickerPreview && (
+        <div className="modal-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setStickerPreview(null)
+        }}>
+          <section
+            className="modal-dialog sticker-preview-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sticker-preview-heading"
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="sticker-preview-heading">Sticker preview</h2>
+                <p className="modal-subtitle">{entity.batch_id}</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button modal-close-btn"
+                onClick={() => setStickerPreview(null)}
+                aria-label="Close sticker preview"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="sticker-preview-content">
+              <img
+                className="sticker-preview-image"
+                src={stickerPreview.stickerDataUrl}
+                alt={`Sticker preview for ${entity.batch_id}`}
+              />
+              <div className="sticker-preview-qr">
+                <img src={stickerPreview.qrDataUrl} alt={`QR code for ${entity.batch_id}`} />
+                <span>QR code links directly to this lot</span>
+              </div>
+            </div>
+            <div className="modal-actions sticker-preview-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => downloadStickerAsset(stickerPreview.qrDataUrl, `${stickerPreview.fileBase}-qr.png`)}
+              >
+                <Download size={15} /> Download QR
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => downloadStickerAsset(stickerPreview.stickerDataUrl, `${stickerPreview.fileBase}-sticker.png`)}
+              >
+                <Download size={15} /> Download sticker
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <header className="detail-heading">
         <div className={`detail-type-badge ${entity.type}`}>
@@ -1074,9 +1139,12 @@ export function EntityDetail({
             <h2 id="genealogy-heading">Genealogy</h2>
           </header>
           <GenealogyTree
+            key={entity.id}
             entityId={entity.id}
+            batchId={entity.batch_id}
             edges={genealogy.treeEdges}
             onNavigateEntity={onNavigateEntity}
+            onLoadFullGenealogy={onLoadFullGenealogy}
           />
         </aside>
       </div>
