@@ -19,6 +19,7 @@ export function Topbar({
   breadcrumbs,
   onSelectEntity,
   onOpenCreateModal,
+  canProduce = true,
   storageMode,
   profile,
   notifications = [],
@@ -278,6 +279,7 @@ export function Topbar({
         </div>
 
         {/* Quick Create Dropdown */}
+        {canProduce && (
         <div className="create-menu-container" ref={createMenuRef}>
           <button
             className="primary-button topbar-create-btn"
@@ -340,6 +342,7 @@ export function Topbar({
             </div>
           )}
         </div>
+        )}
 
         {/* Storage State Indicator */}
         <div className="storage-mode-indicator" title={storageMode === 'supabase' ? 'Connected to Supabase' : 'Supabase is unavailable'}>

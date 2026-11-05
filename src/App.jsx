@@ -3,10 +3,13 @@ import { supabase } from './lib/supabase'
 import {
   listEntities,
   getEntity,
+  getConnectedGenealogy,
   createFlatYarn,
   createEntitySample,
   createYarnBatch,
   createRopeBatch,
+  createColoredMaterialLot,
+  deleteEntityBatch,
   updateEntityBasicInfo,
   updateEntityStatus,
   addParameter,
@@ -17,6 +20,7 @@ import {
   addEvidence,
   getGlobalAuditLogs,
   getCurrentUserProfile,
+  getRoleAccessConfiguration,
   getStorageMode,
   getEvidenceDownloadUrl,
   listDismissedStockAlerts,
@@ -42,16 +46,21 @@ const AddProcessModal = lazy(() => import('./components/AddProcessModal').then((
 const UploadEvidenceModal = lazy(() => import('./components/UploadEvidenceModal').then((module) => ({ default: module.UploadEvidenceModal })))
 const SqlMigrationModal = lazy(() => import('./components/SqlMigrationModal').then((module) => ({ default: module.SqlMigrationModal })))
 const ProcessSpecificationAdminModal = lazy(() => import('./components/ProcessSpecificationAdminModal').then((module) => ({ default: module.ProcessSpecificationAdminModal })))
+const AccessControlAdminModal = lazy(() => import('./components/AccessControlAdminModal').then((module) => ({ default: module.AccessControlAdminModal })))
 
 export function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeView, setActiveView] = useState('dashboard') // 'dashboard' | 'flat_yarn' | 'yarn' | 'rope' | 'audit'
-  const [selectedEntityId, setSelectedEntityId] = useState(null)
+  const [selectedEntityId, setSelectedEntityId] = useState(
+    () => new URLSearchParams(window.location.search).get('entity')
+  )
   const [selectedEntityData, setSelectedEntityData] = useState(null)
   const [entities, setEntities] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
   const [userProfile, setUserProfile] = useState(null)
+  const [userPermissions, setUserPermissions] = useState(null)
+  const [accessConfigurationError, setAccessConfigurationError] = useState('')
   const [storageMode, setStorageMode] = useState('unavailable')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [loginError, setLoginError] = useState('')
@@ -70,6 +79,7 @@ export function App() {
   const [evidenceTarget, setEvidenceTarget] = useState(null)
   const [sqlModalOpen, setSqlModalOpen] = useState(false)
   const [processSpecificationModalOpen, setProcessSpecificationModalOpen] = useState(false)
+  const [accessControlModalOpen, setAccessControlModalOpen] = useState(false)
   const [processSpecifications, setProcessSpecifications] = useState([])
   const [processSpecificationsError, setProcessSpecificationsError] = useState('')
 
@@ -143,11 +153,39 @@ export function App() {
 
   useEffect(() => {
     setUserProfile(null)
+    setUserPermissions(null)
+    setAccessConfigurationError('')
     setEntities([])
     setAuditLogs([])
     setSelectedEntityData(null)
     setDataError('')
   }, [session?.user?.id])
+
+  useEffect(() => {
+    if (!userProfile?.role) return
+    let active = true
+    getRoleAccessConfiguration().then((result) => {
+      if (!active) return
+      if (result.error) {
+        setAccessConfigurationError(result.error.message || 'Apply the production identity and role access migration.')
+        setUserPermissions(userProfile.role === 'admin'
+          ? {
+            can_view: true, can_produce: true, can_edit: true, can_process: true,
+            can_qc: true, can_delete: true, can_manage_users: true,
+          }
+          : {
+            can_view: true, can_produce: userProfile.role === 'operator',
+            can_edit: false, can_process: userProfile.role === 'operator',
+            can_qc: userProfile.role === 'operator', can_delete: false, can_manage_users: false,
+          })
+        return
+      }
+      const permissions = result.data.find((item) => item.role === userProfile.role)
+      setUserPermissions(permissions || null)
+      setAccessConfigurationError('')
+    })
+    return () => { active = false }
+  }, [userProfile?.role])
 
   useEffect(() => {
     const userId = session?.user?.id
@@ -224,7 +262,7 @@ export function App() {
 
   // When selectedEntityId changes, fetch full detail
   useEffect(() => {
-    if (!selectedEntityId) {
+    if (!selectedEntityId || !session?.user?.id) {
       setSelectedEntityData(null)
       return
     }
@@ -241,7 +279,7 @@ export function App() {
     return () => {
       mounted = false
     }
-  }, [selectedEntityId])
+  }, [selectedEntityId, session?.user?.id])
 
   // Sign in / Sign out handlers
   const handleLogin = (newSession) => {
@@ -296,17 +334,26 @@ export function App() {
   // Navigation handlers
   const handleSelectEntity = (entityId) => {
     setSelectedEntityId(entityId)
+    const url = new URL(window.location.href)
+    url.searchParams.set('entity', entityId)
+    window.history.pushState({}, '', url)
   }
 
   const handleBackFromDetail = () => {
     setSelectedEntityId(null)
     setSelectedEntityData(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('entity')
+    window.history.pushState({}, '', url)
   }
 
   const handleNavigateView = (viewId) => {
     setSelectedEntityId(null)
     setSelectedEntityData(null)
     setActiveView(viewId)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('entity')
+    window.history.pushState({}, '', url)
   }
 
   // Create Handlers
@@ -331,6 +378,24 @@ export function App() {
     const res = await createRopeBatch(params)
     if (res.data) setSelectedEntityId(res.data.id)
     return finishMutation(res, null)
+  }
+
+  const handleCreateColoredLot = async (params) => {
+    const result = await createColoredMaterialLot(params)
+    if (result.data) setSelectedEntityId(result.data.id)
+    return finishMutation(result, null)
+  }
+
+  const handleLoadFullGenealogy = async (entityId) => getConnectedGenealogy(entityId)
+
+  const handleDeleteEntity = async (entityId) => {
+    const result = await deleteEntityBatch(entityId)
+    if (result.data || result.error?.operationCommitted) {
+      handleBackFromDetail()
+      await refreshData()
+    }
+    if (result.error) setDataError(result.error.message)
+    return result
   }
 
   // Edit Handlers
@@ -486,6 +551,12 @@ export function App() {
               Sign out
             </button>
           )}
+          {accessControlModalOpen && userProfile.role === 'admin' && (
+            <AccessControlAdminModal
+              currentUserId={session.user.id}
+              onClose={() => setAccessControlModalOpen(false)}
+            />
+          )}
         </div>
       </div>
     )
@@ -548,6 +619,7 @@ export function App() {
         storageMode={storageMode}
         onOpenSqlModal={() => setSqlModalOpen(true)}
         onOpenProcessSpecifications={handleOpenProcessSpecificationAdmin}
+        onOpenAccessControl={() => setAccessControlModalOpen(true)}
       />
 
       <div className="main-layout-wrap">
@@ -557,6 +629,7 @@ export function App() {
           breadcrumbs={getBreadcrumbs()}
           onSelectEntity={handleSelectEntity}
           onOpenCreateModal={(tier) => setCreateModal({ open: true, type: tier || 'flat_yarn' })}
+          canProduce={Boolean(userPermissions?.can_produce)}
           storageMode={storageMode}
           profile={userProfile}
           notifications={visibleLowStockEntities}
@@ -570,6 +643,11 @@ export function App() {
               {dataError}
             </div>
           )}
+          {accessConfigurationError && userProfile.role === 'admin' && (
+            <div className="login-error-box" role="alert">
+              Access matrix is using legacy defaults: {accessConfigurationError}
+            </div>
+          )}
           {stockAlertError && (
             <div className="login-error-box" role="alert">
               Stock alert dismissals need the database migration before they can be saved: {stockAlertError}
@@ -580,12 +658,20 @@ export function App() {
             <EntityDetail
               entity={selectedEntityData}
               isAdmin={userProfile?.role === 'admin'}
+              canEdit={Boolean(userPermissions?.can_edit)}
+              canProduce={Boolean(userPermissions?.can_produce)}
+              canQc={Boolean(userPermissions?.can_qc)}
+              canProcess={Boolean(userPermissions?.can_process)}
+              canDelete={Boolean(userPermissions?.can_delete)}
               onBack={handleBackFromDetail}
               onNavigateEntity={handleSelectEntity}
               onViewHistory={() => handleNavigateView('audit')}
               onOpenEditModal={() => setEditBasicModalOpen(true)}
               onOpenAddParamModal={() => setAddParamModalOpen(true)}
               onCreateSample={handleCreateEntitySample}
+              onCreateColoredLot={handleCreateColoredLot}
+              onLoadFullGenealogy={handleLoadFullGenealogy}
+              onDeleteEntity={handleDeleteEntity}
               onOpenAddTestModal={() => setAddTestModalOpen(true)}
               onOpenAddProcessModal={handleOpenAddProcessModal}
               onOpenUploadEvidenceModal={() => {
@@ -636,7 +722,7 @@ export function App() {
 
       {/* MODALS */}
       <Suspense fallback={null}>
-      {createModal.open && (
+      {createModal.open && userPermissions?.can_produce && (
         <CreateEntityModal
           initialType={createModal.type}
           availableFlatYarns={availableFlatYarns}
@@ -653,6 +739,7 @@ export function App() {
         <EditBasicInfoModal
           entity={selectedEntityData}
           isAdmin={userProfile.role === 'admin'}
+          canEdit={Boolean(userPermissions?.can_edit)}
           onClose={() => setEditBasicModalOpen(false)}
           onSave={handleUpdateBasicInfo}
         />
