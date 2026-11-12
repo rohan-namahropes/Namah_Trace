@@ -10,6 +10,7 @@ import {
   Bell,
   Cloud,
   HardDrive,
+  LoaderCircle,
   X,
 } from 'lucide-react'
 import { searchTrace } from '../lib/api'
@@ -28,6 +29,7 @@ export function Topbar({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchError, setSearchError] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [createMenuOpen, setCreateMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -43,34 +45,44 @@ export function Topbar({
     .slice(0, 2)
     .toUpperCase()
 
-  // Handle live search
+  // Debounce live search and cancel stale requests as the query changes.
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim()
+    if (!query) {
       setSearchResults([])
       setSearchOpen(false)
       setSearchError('')
+      setSearchLoading(false)
       return
     }
 
     let active = true
-    searchTrace(searchQuery)
+    const controller = new AbortController()
+    setSearchResults([])
+    setSearchError('')
+    setSearchLoading(true)
+    const timeoutId = window.setTimeout(() => {
+      searchTrace(query, controller.signal)
       .then((results) => {
         if (active) {
           setSearchResults(results)
-          setSearchError('')
-          setSearchOpen(true)
         }
       })
       .catch((error) => {
         if (active) {
           setSearchResults([])
           setSearchError(error.message || 'Search failed.')
-          setSearchOpen(true)
         }
       })
+      .finally(() => {
+        if (active) setSearchLoading(false)
+      })
+    }, 150)
 
     return () => {
       active = false
+      window.clearTimeout(timeoutId)
+      controller.abort()
     }
   }, [searchQuery])
 
@@ -89,6 +101,17 @@ export function Topbar({
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return
+      setSearchOpen(false)
+      setCreateMenuOpen(false)
+      setNotificationsOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   const handleResultClick = (entityId) => {
@@ -148,6 +171,7 @@ export function Topbar({
             aria-label={`Notifications${notifications.length ? `, ${notifications.length} critical stock alerts` : ''}`}
             aria-haspopup="true"
             aria-expanded={notificationsOpen}
+            aria-controls="topbar-notifications-menu"
             onClick={() => setNotificationsOpen((open) => !open)}
           >
             <Bell size={18} />
@@ -157,7 +181,12 @@ export function Topbar({
             )}
           </button>
           {notificationsOpen && (
-            <section className="notification-dropdown" aria-label="Notifications" aria-live="polite">
+            <section
+              id="topbar-notifications-menu"
+              className="notification-dropdown"
+              aria-label="Notifications"
+              aria-live="polite"
+            >
               <header>
                 <strong>Notifications</strong>
                 <div className="notification-header-actions">
@@ -223,31 +252,63 @@ export function Topbar({
             <input
               type="text"
               placeholder="Search batches, suppliers, parameters..."
+              role="combobox"
+              aria-label="Search batches, suppliers, parameters"
+              aria-autocomplete="list"
+              aria-expanded={searchOpen}
+              aria-controls="topbar-search-results"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                setSearchOpen(Boolean(e.target.value.trim()))
+              }}
               onFocus={() => searchQuery.trim() && setSearchOpen(true)}
               className="search-bar-input"
             />
+            {searchLoading ? (
+              <LoaderCircle size={15} className="search-loading-icon" aria-label="Searching" />
+            ) : searchQuery ? (
+              <button
+                type="button"
+                className="search-bar-clear"
+                aria-label="Clear search"
+                onClick={() => {
+                  setSearchQuery('')
+                  setSearchOpen(false)
+                }}
+              >
+                <X size={14} />
+              </button>
+            ) : null}
           </div>
 
           {searchOpen && (
-            <div className="search-dropdown-menu">
+            <div
+              id="topbar-search-results"
+              className="search-dropdown-menu"
+              aria-label="Batch search results"
+              aria-busy={searchLoading}
+            >
               <div className="search-dropdown-header">
                 <span>Search results for "{searchQuery}"</span>
-                <small>{searchResults.length} found</small>
+                <small>{searchLoading ? 'Searching…' : `${searchResults.length} found`}</small>
               </div>
-              {searchError ? (
+              {searchLoading ? (
+                <div className="search-no-results" role="status">Searching batch records…</div>
+              ) : searchError ? (
                 <div className="search-no-results" role="alert">{searchError}</div>
               ) : searchResults.length === 0 ? (
                 <div className="search-no-results">
                   No matching batch IDs, parameters, or records found.
                 </div>
               ) : (
-                <div className="search-results-list">
+                <div className="search-results-list" role="listbox" aria-label="Matching batches">
                   {searchResults.map(({ entity, matchType, matchDetail }) => (
                     <button
                       key={entity.id}
                       className="search-result-row"
+                      role="option"
+                      aria-selected="false"
                       onClick={() => handleResultClick(entity.id)}
                     >
                       <div className="search-result-icon">
@@ -287,13 +348,14 @@ export function Topbar({
             aria-label="Create batch"
             aria-haspopup="true"
             aria-expanded={createMenuOpen}
+            aria-controls="topbar-create-menu"
           >
             <Plus size={16} />
             <span>Create</span>
           </button>
 
           {createMenuOpen && (
-            <div className="create-dropdown-menu">
+            <div className="create-dropdown-menu" id="topbar-create-menu">
               <button
                 className="create-dropdown-item"
                 onClick={() => {

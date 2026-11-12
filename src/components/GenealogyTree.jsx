@@ -41,12 +41,11 @@ function makeRows(edges, entityId, rootBatchId) {
 
   const ready = [...nodes.values()]
     .filter((node) => incomingCount.get(node.id) === 0)
-    .sort((left, right) => left.batchId.localeCompare(right.batchId))
   for (const node of ready) depth.set(node.id, 0)
 
   let processed = 0
-  while (ready.length) {
-    const node = ready.shift()
+  for (let index = 0; index < ready.length; index += 1) {
+    const node = ready[index]
     processed += 1
     for (const childId of outgoing.get(node.id) || []) {
       depth.set(childId, Math.max(depth.get(childId) || 0, (depth.get(node.id) || 0) + 1))
@@ -54,7 +53,6 @@ function makeRows(edges, entityId, rootBatchId) {
       incomingCount.set(childId, remainingIncoming)
       if (remainingIncoming === 0) {
         ready.push(nodes.get(childId))
-        ready.sort((left, right) => left.batchId.localeCompare(right.batchId))
       }
     }
   }
@@ -139,8 +137,8 @@ export function GenealogyTree({
 
     const distance = new Map([[entityId, 0]])
     const pending = [entityId]
-    while (pending.length) {
-      const id = pending.shift()
+    for (let index = 0; index < pending.length; index += 1) {
+      const id = pending[index]
       for (const neighbor of neighbors.get(id) || []) {
         if (distance.has(neighbor)) continue
         distance.set(neighbor, distance.get(id) + 1)

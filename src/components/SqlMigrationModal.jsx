@@ -13,6 +13,8 @@ import FACTORFLOW_DEVELOPMENT_SQL from '../../supabase/factorflow_development_mi
 import FLAT_YARN_SAMPLE_WORKFLOW_SQL from '../../supabase/flat_yarn_sample_workflow_migration.sql?raw'
 import COLORING_ESTIMATED_YARN_STOCK_FIX_SQL from '../../supabase/coloring_estimated_yarn_stock_fix.sql?raw'
 import ADMIN_BATCH_DELETION_SQL from '../../supabase/admin_batch_deletion_migration.sql?raw'
+import SEARCH_PERFORMANCE_SQL from '../../supabase/search_performance_migration.sql?raw'
+import GENEALOGY_PERFORMANCE_SQL from '../../supabase/genealogy_performance_migration.sql?raw'
 
 const MIGRATIONS = [
   {
@@ -105,6 +107,20 @@ const MIGRATIONS = [
     label: 'Admin · Delete dummy or incorrect lots safely',
     sql: ADMIN_BATCH_DELETION_SQL,
     description: 'Adds Admin-only batch deletion, removes evidence files and dependent records, and prevents deleting a lot that still has downstream child lots. Apply after Production IDs, color lots & editable access.',
+  },
+  {
+    id: 'search-performance',
+    title: 'Global search performance',
+    label: 'Performance · Faster partial-match search',
+    sql: SEARCH_PERFORMANCE_SQL,
+    description: 'Enables PostgreSQL trigram indexes for batch, supplier, treatment, notes, and parameter searches. Apply once to speed up substring matching in global search.',
+  },
+  {
+    id: 'genealogy-performance',
+    title: 'Genealogy performance',
+    label: 'Performance · Load connected genealogy in one query',
+    sql: GENEALOGY_PERFORMANCE_SQL,
+    description: 'Adds an RLS-respecting recursive genealogy query so opening the expanded genealogy does not make one round trip per generation.',
   },
 ]
 

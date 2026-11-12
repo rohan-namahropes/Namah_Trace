@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 
 const EVIDENCE_BUCKET = 'evidence'
 const PROCESS_SPECIFICATION_BUCKET = 'process-specifications'
+let connectedGenealogyRpcAvailable = null
 
 function requireSupabase() {
   if (!supabase) {
@@ -115,12 +116,12 @@ async function findEntity(idOrBatchId) {
   )
 }
 
-async function enrichEntities(entities) {
+async function enrichEntities(entities, profiles = null) {
   if (entities.length === 0) return entities
-  const profiles = await fetchProfiles(entities.map((entity) => entity.created_by))
+  const resolvedProfiles = profiles || await fetchProfiles(entities.map((entity) => entity.created_by))
   return entities.map((entity) => ({
     ...entity,
-    created_by_name: profiles.get(entity.created_by) || null,
+    created_by_name: resolvedProfiles.get(entity.created_by) || null,
   }))
 }
 
@@ -335,19 +336,25 @@ async function entityBundle(entityId, knownEntity = null) {
     link.parent_entity_id,
     link.child_entity_id,
   ]))]
-  const adjacentLinks = adjacentIds.length
-    ? await Promise.all([
-      queryData(db.from('entity_genealogy').select('*').in('parent_entity_id', adjacentIds)),
-      queryData(db.from('entity_genealogy').select('*').in('child_entity_id', adjacentIds)),
-    ])
-    : []
+  const adjacentChunks = []
+  for (let index = 0; index < adjacentIds.length; index += 100) {
+    adjacentChunks.push(adjacentIds.slice(index, index + 100))
+  }
+  const adjacentLinkGroups = await Promise.all(adjacentChunks.map((ids) => (
+    queryData(
+      db.from('entity_genealogy')
+        .select('*')
+        .or(`parent_entity_id.in.(${ids.join(',')}),child_entity_id.in.(${ids.join(',')})`)
+    )
+  )))
+  const adjacentLinks = adjacentLinkGroups.flat()
   const allGenealogyLinks = [...new Map(
     [...genealogyLinks, ...adjacentLinks.flat()].map((link) => [link.id, link])
   ).values()]
   const ancestorDepths = new Map([[entityId, 0]])
   const pendingAncestors = [entityId]
-  while (pendingAncestors.length) {
-    const childId = pendingAncestors.shift()
+  for (let index = 0; index < pendingAncestors.length; index += 1) {
+    const childId = pendingAncestors[index]
     for (const link of allGenealogyLinks) {
       if (link.child_entity_id !== childId || ancestorDepths.has(link.parent_entity_id)) continue
       ancestorDepths.set(link.parent_entity_id, ancestorDepths.get(childId) + 1)
@@ -360,30 +367,44 @@ async function entityBundle(entityId, knownEntity = null) {
       ancestorDepths.get(left) - ancestorDepths.get(right)
       || left.localeCompare(right)
     ))
-  const parentLifecycleRows = parentIds.length
-    ? await Promise.all([
-      queryData(db.from('entity_parameters').select('*').in('entity_id', parentIds).order('created_at')),
-      queryData(db.from('entity_tests').select('*').in('entity_id', parentIds).order('created_at')),
-      queryData(db.from('entity_processes').select('*').in('entity_id', parentIds).order('performed_at')),
-    ])
-    : [[], [], []]
-  const [parentParameters, parentTests, parentProcesses] = parentLifecycleRows
   const relatedIds = [...new Set(allGenealogyLinks.flatMap((link) => [
     link.parent_entity_id,
     link.child_entity_id,
   ]))]
-  const relatedEntities = relatedIds.length
-    ? await queryData(db.from('entities').select('*').in('id', relatedIds))
-    : []
+  const peopleIds = [
+    entity.created_by,
+    ...tests.map((item) => item.performed_by),
+    ...processes.map((item) => item.performed_by),
+    ...evidenceRows.map((item) => item.uploaded_by),
+    ...auditLogs.map((item) => item.performed_by),
+  ]
+  const [parentLifecycleRows, relatedEntities, profiles] = await Promise.all([
+    parentIds.length
+      ? Promise.all([
+        queryData(db.from('entity_parameters').select('*').in('entity_id', parentIds).order('created_at')),
+        queryData(db.from('entity_tests').select('*').in('entity_id', parentIds).order('created_at')),
+        queryData(db.from('entity_processes').select('*').in('entity_id', parentIds).order('performed_at')),
+      ])
+      : Promise.resolve([[], [], []]),
+    relatedIds.length
+      ? queryData(db.from('entities').select('*').in('id', relatedIds))
+      : Promise.resolve([]),
+    fetchProfiles(peopleIds),
+  ])
+  const [parentParameters, parentTests, parentProcesses] = parentLifecycleRows
   const descendantIds = new Set([entityId])
-  let expanded = true
-  while (expanded) {
-    expanded = false
-    for (const link of allGenealogyLinks) {
-      if (descendantIds.has(link.parent_entity_id) && !descendantIds.has(link.child_entity_id)) {
-        descendantIds.add(link.child_entity_id)
-        expanded = true
-      }
+  const childrenByParent = new Map()
+  for (const link of allGenealogyLinks) {
+    const children = childrenByParent.get(link.parent_entity_id) || []
+    children.push(link.child_entity_id)
+    childrenByParent.set(link.parent_entity_id, children)
+  }
+  const pendingDescendants = [entityId]
+  for (let index = 0; index < pendingDescendants.length; index += 1) {
+    for (const childId of childrenByParent.get(pendingDescendants[index]) || []) {
+      if (descendantIds.has(childId)) continue
+      descendantIds.add(childId)
+      pendingDescendants.push(childId)
     }
   }
   const lineageLinks = allGenealogyLinks.filter((link) => (
@@ -407,14 +428,6 @@ async function entityBundle(entityId, knownEntity = null) {
       || !entity.critical_quantity_threshold_unit?.trim()
       || entity.unit !== entity.critical_quantity_threshold_unit
     )
-  const peopleIds = [
-    entity.created_by,
-    ...tests.map((item) => item.performed_by),
-    ...processes.map((item) => item.performed_by),
-    ...evidenceRows.map((item) => item.uploaded_by),
-    ...auditLogs.map((item) => item.performed_by),
-  ]
-  const profiles = await fetchProfiles(peopleIds)
   const processLookup = new Map(processes.map((item) => [item.id, item]))
   const parentProcessLookup = new Map(parentProcesses.map((item) => [item.id, item]))
   const parameterLookup = new Map(parameters.map((item) => [item.id, item]))
@@ -571,18 +584,21 @@ export async function listEntities(type = null) {
     let query = db.from('entities').select('*').order('created_at', { ascending: false })
     if (type) query = query.eq('type', type)
     const entities = await queryData(query)
-    const links = entities.length
-      ? await queryData(
+    const [links, profiles] = await Promise.all([
+      entities.length
+        ? queryData(
         db.from('entity_genealogy')
         .select('parent_entity_id, child_entity_id, quantity_used, unit')
           .in('parent_entity_id', entities.map((entity) => entity.id))
       )
-      : []
+        : Promise.resolve([]),
+      fetchProfiles(entities.map((entity) => entity.created_by)),
+    ])
     const parentIdsByChild = new Map()
     for (const link of links) {
-    const parentIds = parentIdsByChild.get(link.child_entity_id) || []
-    parentIds.push(link.parent_entity_id)
-    parentIdsByChild.set(link.child_entity_id, parentIds)
+      const parentIds = parentIdsByChild.get(link.child_entity_id) || []
+      parentIds.push(link.parent_entity_id)
+      parentIdsByChild.set(link.child_entity_id, parentIds)
     }
     return enrichEntities(entities.map((entity) => {
       const balance = quantityBalance(entity, links)
@@ -606,7 +622,7 @@ export async function listEntities(type = null) {
         stockDepleted,
         thresholdUnitProblem,
       }
-    }))
+    }), profiles)
   })
 }
 
@@ -623,6 +639,31 @@ export async function getEntity(idOrBatchId) {
 export async function getConnectedGenealogy(entityId) {
   return withResult(async () => {
     const db = requireSupabase()
+    if (connectedGenealogyRpcAvailable !== false) {
+      const { data, error } = await db.rpc('get_connected_genealogy', {
+        p_entity_id: entityId,
+      })
+      if (!error) {
+        connectedGenealogyRpcAvailable = true
+        return data.map((link) => ({
+          id: link.id,
+          parentId: link.parent_id,
+          parentBatchId: link.parent_batch_id,
+          parentType: link.parent_type,
+          childId: link.child_id,
+          childBatchId: link.child_batch_id,
+          childType: link.child_type,
+          quantityUsed: link.quantity_used,
+          unit: link.unit,
+        }))
+      }
+      if (['PGRST202', '42883'].includes(error.code)) {
+        connectedGenealogyRpcAvailable = false
+      } else {
+        throw error
+      }
+    }
+
     const linksById = new Map()
     const visitedEntityIds = new Set([entityId])
     let frontier = [entityId]
@@ -630,13 +671,18 @@ export async function getConnectedGenealogy(entityId) {
     while (frontier.length) {
       const currentFrontier = frontier
       frontier = []
+      const chunks = []
       for (let index = 0; index < currentFrontier.length; index += 100) {
-        const ids = currentFrontier.slice(index, index + 100)
-        const [children, parents] = await Promise.all([
-          queryData(db.from('entity_genealogy').select('*').in('parent_entity_id', ids)),
-          queryData(db.from('entity_genealogy').select('*').in('child_entity_id', ids)),
-        ])
-        for (const link of [...children, ...parents]) {
+        chunks.push(currentFrontier.slice(index, index + 100))
+      }
+      const linkGroups = await Promise.all(chunks.map((ids) => (
+        queryData(
+          db.from('entity_genealogy')
+            .select('*')
+            .or(`parent_entity_id.in.(${ids.join(',')}),child_entity_id.in.(${ids.join(',')})`)
+        )
+      )))
+      for (const link of linkGroups.flat()) {
           linksById.set(link.id, link)
           for (const linkedEntityId of [link.parent_entity_id, link.child_entity_id]) {
             if (!visitedEntityIds.has(linkedEntityId)) {
@@ -644,19 +690,22 @@ export async function getConnectedGenealogy(entityId) {
               frontier.push(linkedEntityId)
             }
           }
-        }
       }
     }
 
     const entityIds = [...visitedEntityIds]
-    const entities = []
+    const entityChunks = []
     for (let index = 0; index < entityIds.length; index += 100) {
-      entities.push(...await queryData(
+      entityChunks.push(entityIds.slice(index, index + 100))
+    }
+    const entityGroups = await Promise.all(entityChunks.map((ids) => (
+      queryData(
         db.from('entities')
           .select('id, batch_id, type, quantity, estimated_output_quantity, unit')
-          .in('id', entityIds.slice(index, index + 100))
-      ))
-    }
+          .in('id', ids)
+      )
+    )))
+    const entities = entityGroups.flat()
     const entitiesById = new Map(entities.map((entity) => [entity.id, entity]))
 
     return [...linksById.values()].flatMap((link) => {
@@ -719,11 +768,15 @@ export async function createEntitySample(entityId, sampleId) {
   })
 }
 
-async function validateFlatYarnSample(entityId, sampleId) {
+async function validateFlatYarnSample(entityId, sampleId, knownEntityType = null) {
   const db = requireSupabase()
-  const entity = await queryData(db.from('entities').select('type').eq('id', entityId).maybeSingle())
-  if (!entity) throw new Error('Batch not found.')
-  if (entity.type !== 'flat_yarn') return
+  let entityType = knownEntityType
+  if (!entityType) {
+    const entity = await queryData(db.from('entities').select('type').eq('id', entityId).maybeSingle())
+    if (!entity) throw new Error('Batch not found.')
+    entityType = entity.type
+  }
+  if (entityType !== 'flat_yarn') return
   const normalizedSampleId = String(sampleId || '').trim()
   if (!normalizedSampleId) throw new Error('Select a cone / sample before recording this Flat Yarn measurement.')
   const samples = await queryData(
@@ -1409,11 +1462,11 @@ export async function updateEntityStatus(entityId, newStatus) {
   })
 }
 
-export async function addParameter(entityId, { name, value, unit, sampleId, remarks }) {
+export async function addParameter(entityId, { name, value, unit, sampleId, remarks }, entityType = null) {
   return withResult(async () => {
     const db = requireSupabase()
     const sampleCode = String(sampleId || '').trim()
-    await validateFlatYarnSample(entityId, sampleCode)
+    await validateFlatYarnSample(entityId, sampleCode, entityType)
     const parameter = await queryData(db.from('entity_parameters').insert({
       entity_id: entityId,
       name: String(name).trim(),
@@ -1478,11 +1531,11 @@ export async function addTest(entityId, {
   processId = null,
   sampleId,
   testedAt,
-}) {
+}, entityType = null) {
   return withResult(async () => {
     const db = requireSupabase()
     const sampleCode = String(sampleId || '').trim()
-    await validateFlatYarnSample(entityId, sampleCode)
+    await validateFlatYarnSample(entityId, sampleCode, entityType)
     const test = await queryData(db.from('entity_tests').insert({
       entity_id: entityId,
       process_id: processId || null,
@@ -1690,53 +1743,71 @@ export async function getEvidenceDownloadUrl(entityId, evidenceId) {
   })
 }
 
-export async function searchTrace(query) {
+export async function searchTrace(query, signal) {
   const q = String(query).trim().toLowerCase()
   if (!q) return []
   const db = requireSupabase()
-  const [entities, parameters] = await Promise.all([
-    queryData(db.from('entities').select('*').order('created_at', { ascending: false })),
-    queryData(db.from('entity_parameters').select('*')),
+  const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
+  const filterValue = `"${pattern.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  const entityColumns = 'id, batch_id, type, status, created_at, supplier, treatment, notes'
+  const searchableEntityFields = [
+    ['batch_id', 'Batch ID', (value) => `Matches Batch ID "${value}"`],
+    ['supplier', 'Supplier', (value) => `Supplier: ${value}`],
+    ['treatment', 'Treatment', (value) => `Treatment: ${value}`],
+    ['notes', 'Remarks', (value) => {
+      const notes = String(value || '')
+      return notes.length > 120 ? `${notes.slice(0, 117)}…` : notes
+    }],
+  ]
+  const [entityMatches, parameterMatches] = await Promise.all([
+    queryData(
+      db.from('entities')
+        .select(entityColumns)
+        .or([
+          `batch_id.ilike.${filterValue}`,
+          `supplier.ilike.${filterValue}`,
+          `treatment.ilike.${filterValue}`,
+          `notes.ilike.${filterValue}`,
+        ].join(','))
+        .order('created_at', { ascending: false })
+        .limit(40)
+        .abortSignal(signal)
+    ),
+    queryData(
+      db.from('entity_parameters')
+        .select('entity_id, name, value, unit, entity:entities!inner(id, batch_id, type, status, created_at, supplier, treatment, notes)')
+        .or(`name.ilike.${filterValue},value.ilike.${filterValue}`)
+        .order('created_at', { ascending: false })
+        .limit(40)
+        .abortSignal(signal)
+    ),
   ])
-  const parameterEntities = new Set(
-    parameters
-      .filter((item) => item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q))
-      .map((item) => item.entity_id)
-  )
-  const results = []
-  for (const entity of entities) {
-    let matchType = null
-    let matchDetail = ''
-    if (entity.batch_id.toLowerCase().includes(q)) {
-      matchType = 'Batch ID'
-      matchDetail = `Matches Batch ID "${entity.batch_id}"`
-    } else if (entity.supplier?.toLowerCase().includes(q)) {
-      matchType = 'Supplier'
-      matchDetail = `Supplier: ${entity.supplier}`
-    } else if (entity.treatment?.toLowerCase().includes(q)) {
-      matchType = 'Treatment'
-      matchDetail = `Treatment: ${entity.treatment}`
-    } else if (entity.notes?.toLowerCase().includes(q)) {
-      matchType = 'Remarks'
-      matchDetail = entity.notes
-    } else if (parameterEntities.has(entity.id)) {
-      matchType = 'Parameter'
-      const parameter = parameters.find(
-        (item) => item.entity_id === entity.id &&
-          (item.name.toLowerCase().includes(q) || item.value.toLowerCase().includes(q))
-      )
-      matchDetail = `${parameter.name}: ${parameter.value} ${parameter.unit || ''}`
-    }
-    if (matchType) {
-      results.push({
-        entity,
-        matchType,
-        matchDetail,
-        genealogy: (await entityBundle(entity.id)).genealogy,
-      })
+  const matches = new Map()
+  const addEntityMatches = (entity, matchType, matchDetail) => {
+    if (!matches.has(entity.id)) {
+      matches.set(entity.id, { entity, matchType, matchDetail })
     }
   }
-  return results
+  for (const entity of entityMatches) {
+    const matchingField = searchableEntityFields.find(([field]) =>
+      String(entity[field] || '').toLowerCase().includes(q)
+    )
+    if (!matchingField) continue
+    const [field, matchType, getDetail] = matchingField
+    addEntityMatches(entity, matchType, getDetail(entity[field]))
+  }
+  for (const parameter of parameterMatches) {
+    const entity = parameter.entity
+    if (!entity) continue
+    addEntityMatches(
+      entity,
+      'Parameter',
+      `${parameter.name}: ${parameter.value} ${parameter.unit || ''}`.trim()
+    )
+  }
+  return [...matches.values()]
+    .sort((left, right) => new Date(right.entity.created_at || 0) - new Date(left.entity.created_at || 0))
+    .slice(0, 20)
 }
 
 export async function getGlobalAuditLogs(limit = 25) {
@@ -1745,11 +1816,13 @@ export async function getGlobalAuditLogs(limit = 25) {
     db.from('entity_audit_logs').select('*').order('created_at', { ascending: false }).limit(limit)
   )
   const entityIds = [...new Set(logs.map((log) => log.entity_id))]
-  const entities = entityIds.length
-    ? await queryData(db.from('entities').select('id, batch_id, type').in('id', entityIds))
-    : []
+  const [entities, profiles] = await Promise.all([
+    entityIds.length
+      ? queryData(db.from('entities').select('id, batch_id, type').in('id', entityIds))
+      : Promise.resolve([]),
+    fetchProfiles(logs.map((log) => log.performed_by)),
+  ])
   const byEntity = new Map(entities.map((entity) => [entity.id, entity]))
-  const profiles = await fetchProfiles(logs.map((log) => log.performed_by))
   return logs.map((log) => {
     const entity = byEntity.get(log.entity_id)
     return {

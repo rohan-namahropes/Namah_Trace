@@ -191,7 +191,7 @@ code, .mono {
   background-color: var(--bg-card);
   color: var(--text-main);
   border: 1px solid var(--border-medium);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .secondary-button:hover {
@@ -235,7 +235,7 @@ code, .mono {
   height: 32px;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .icon-button:hover {
@@ -468,7 +468,7 @@ code, .mono {
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
   text-align: left;
 }
 
@@ -850,7 +850,7 @@ code, .mono {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   padding: 7px 11px;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .search-bar-input-wrap:focus-within {
@@ -871,6 +871,35 @@ code, .mono {
   outline: none;
   font-size: 12px;
   color: var(--text-main);
+}
+
+.search-bar-clear,
+.search-loading-icon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.search-bar-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.search-bar-clear:hover {
+  color: var(--brand-navy);
+  background: var(--brand-navy-subtle);
+}
+
+.search-loading-icon {
+  animation: topbar-search-spin 0.9s linear infinite;
+}
+
+@keyframes topbar-search-spin {
+  to { transform: rotate(360deg); }
 }
 
 .search-bar-input::placeholder {
@@ -1354,7 +1383,7 @@ code, .mono {
   border-radius: var(--radius-sm);
   background-color: var(--bg-card);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .tier-item-card:hover {
@@ -1615,7 +1644,7 @@ code, .mono {
   font-weight: 500;
   border-radius: 3px;
   color: var(--text-muted);
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .filter-pill-btn:hover {
@@ -1767,7 +1796,7 @@ code, .mono {
 
 .row-open-button {
   color: var(--text-subtle);
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, transform 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1934,7 +1963,7 @@ code, .mono {
   color: var(--text-muted);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .tab-btn:hover {
@@ -2096,7 +2125,7 @@ code, .mono {
   border-radius: var(--radius-sm);
   padding: 12px;
   position: relative;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .genealogy-node-card.clickable {
@@ -2274,7 +2303,7 @@ code, .mono {
   font-size: 11px;
   font-weight: 600;
   color: var(--brand-navy);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .grandchild-pill-btn:hover {
@@ -2745,7 +2774,6 @@ code, .mono {
   position: fixed;
   inset: 0;
   background-color: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2926,7 +2954,7 @@ code, .mono {
   color: var(--text-main);
   background-color: var(--bg-card);
   outline: none;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .form-field input:focus,
@@ -2983,7 +3011,7 @@ code, .mono {
   background-color: var(--bg-page);
   border: 1px solid var(--border-subtle);
   text-align: left;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tier-tab-btn strong {
@@ -3141,7 +3169,7 @@ code, .mono {
   background-color: var(--bg-page);
   border: 1px solid var(--border-medium);
   color: var(--text-main);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .preset-chip-btn:hover {
@@ -3177,7 +3205,7 @@ code, .mono {
   text-align: center;
   background-color: var(--bg-page);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .file-dropzone-box:hover {
@@ -3352,7 +3380,7 @@ code, .mono {
   font-size: 13px;
   background-color: var(--bg-card);
   outline: none;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .login-form input:focus {
@@ -6067,5 +6095,16 @@ code, .mono {
 
   .detail-basic-grid {
     grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

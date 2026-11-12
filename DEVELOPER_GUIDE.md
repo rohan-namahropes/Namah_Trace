@@ -96,6 +96,12 @@ The same migration seeds and stores the editable role matrix in `role_permission
 
 To allow administrators to clean up dummy or incorrect lots, apply **Admin batch deletion** after **Production IDs, color lots & editable access**. An Admin can delete a batch from its detail page after typing the exact batch ID. Its tests, parameters, processes, sample records, genealogy links, audit entries, evidence records, and stored evidence files are deleted. To preserve traceability, a batch with downstream child lots cannot be deleted until its children are removed first; deleting a child restores its allocated quantity to its parent balance.
 
+### Global search performance
+
+For an existing database, apply **Global search performance** from the admin **Database migrations** tool. It enables PostgreSQL trigram indexes for partial matches across batch IDs, suppliers, treatments, remarks, and parameters. The client searches these fields with two parallel requests; for queries of three or more characters, PostgreSQL can use the indexes instead of scanning every row.
+
+For expanded genealogy, apply **Genealogy performance** from the same tool. It adds an RLS-respecting recursive database query that loads the connected genealogy in one request. Older databases continue to use the client-side traversal until this migration is applied.
+
 ## 6. Create an administrator account
 
 1. In Supabase, open **Authentication** → **Users**.

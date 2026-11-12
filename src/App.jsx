@@ -58,6 +58,7 @@ export function App() {
   const [selectedEntityData, setSelectedEntityData] = useState(null)
   const [entities, setEntities] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
+  const [workspaceDataReady, setWorkspaceDataReady] = useState(false)
   const [userProfile, setUserProfile] = useState(null)
   const [userPermissions, setUserPermissions] = useState(null)
   const [accessConfigurationError, setAccessConfigurationError] = useState('')
@@ -117,36 +118,30 @@ export function App() {
   }, [])
 
   // 2. Load Entities & Audit Logs
-  const refreshData = useCallback(async ({
-    loadProfile = false,
-    detailId = null,
-  } = {}) => {
+  const refreshData = useCallback(async ({ detailId = null } = {}) => {
     try {
       if (!session?.user?.id) return
       setStorageMode(getStorageMode())
 
-      const [entRes, auditRes, profileRes, detailRes] = await Promise.all([
+      const [entRes, auditRes, detailRes] = await Promise.all([
         listEntities(),
         getGlobalAuditLogs(50),
-        loadProfile
-          ? getCurrentUserProfile(session.user.id)
-          : Promise.resolve({ data: null, error: null }),
         detailId ? getEntity(detailId) : Promise.resolve({ data: null, error: null }),
       ])
       if (entRes.error) throw entRes.error
-      if (profileRes.error) throw profileRes.error
       if (detailRes.error) throw detailRes.error
 
       setEntities(entRes.data)
       setAuditLogs(auditRes)
-      if (profileRes.data) setUserProfile(profileRes.data)
       if (detailRes.data) setSelectedEntityData(detailRes.data)
+      setWorkspaceDataReady(true)
       setDataError('')
     } catch (error) {
       setStorageMode('unavailable')
       setEntities([])
       setAuditLogs([])
       setSelectedEntityData(null)
+      setWorkspaceDataReady(true)
       setDataError(error.message || 'Unable to load production data from Supabase.')
     }
   }, [session?.user?.id])
@@ -157,8 +152,27 @@ export function App() {
     setAccessConfigurationError('')
     setEntities([])
     setAuditLogs([])
+    setWorkspaceDataReady(false)
     setSelectedEntityData(null)
     setDataError('')
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return undefined
+
+    let active = true
+    getCurrentUserProfile(userId).then((result) => {
+      if (!active) return
+      if (result.error) {
+        setDataError(result.error.message || 'Unable to load your production profile.')
+        return
+      }
+      setUserProfile(result.data)
+    }).catch((error) => {
+      if (active) setDataError(error.message || 'Unable to load your production profile.')
+    })
+    return () => { active = false }
   }, [session?.user?.id])
 
   useEffect(() => {
@@ -256,7 +270,7 @@ export function App() {
 
   useEffect(() => {
     if (session?.user?.id) {
-      refreshData({ loadProfile: true })
+      refreshData()
     }
   }, [session?.user?.id, refreshData])
 
@@ -303,7 +317,7 @@ export function App() {
 
   const finishMutation = async (result, detailId = selectedEntityId) => {
     if (result.data || result.error?.operationCommitted) {
-      await refreshData({ detailId })
+      void refreshData({ detailId })
     }
     if (result.error) setDataError(result.error.message)
     return result
@@ -413,7 +427,7 @@ export function App() {
   const handleAddParameter = async (param) => {
     if (!selectedEntityId) return
     const { evidenceFile, ...fields } = param
-    const result = await addParameter(selectedEntityId, fields)
+    const result = await addParameter(selectedEntityId, fields, selectedEntityData?.type)
     return finishRecordWithEvidence(result, evidenceFile, 'parameter')
   }
 
@@ -427,7 +441,7 @@ export function App() {
   const handleAddTest = async (test) => {
     if (!selectedEntityId) return
     const { evidenceFile, ...fields } = test
-    const result = await addTest(selectedEntityId, fields)
+    const result = await addTest(selectedEntityId, fields, selectedEntityData?.type)
     return finishRecordWithEvidence(result, evidenceFile, 'test')
   }
 
@@ -654,7 +668,13 @@ export function App() {
             </div>
           )}
           <Suspense fallback={<div className="page-loading-state">Loading workspace...</div>}>
-          {selectedEntityData ? (
+          {!workspaceDataReady || (
+            selectedEntityId
+            && selectedEntityData?.id !== selectedEntityId
+            && !dataError
+          ) ? (
+            <div className="page-loading-state" role="status">Loading workspace data...</div>
+          ) : selectedEntityData ? (
             <EntityDetail
               entity={selectedEntityData}
               isAdmin={userProfile?.role === 'admin'}
